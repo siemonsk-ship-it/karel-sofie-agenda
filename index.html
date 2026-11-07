@@ -60,6 +60,7 @@
   <div class="tabs" role="tablist">
     <button class="tab" id="tabCal" role="tab" aria-selected="true" type="button">Agenda</button>
     <button class="tab" id="tabReq" role="tab" aria-selected="false" type="button">Verzoeken <span class="badge" id="badge" hidden>0</span></button>
+    <button class="tab" id="tabImp" role="tab" aria-selected="false" type="button">Overnemen <span class="badge imp" id="impBadge" hidden>0</span></button>
   </div>
 
   <div class="pushcard" id="pushCard" hidden>
@@ -87,6 +88,35 @@
   </section>
 
   <section id="viewReq" class="req" hidden></section>
+
+  <section id="viewImp" class="req" hidden>
+    <div class="impbox" id="impSetup" hidden>
+      <h4>Koppel je andere agenda</h4>
+      <p class="hint">Je afspraken komen dan hier binnen. Per afspraak kies je of hij erin moet, alleen voor jou of voor jullie samen. Sofie ziet niets uit je andere agenda tot jij iets overneemt.</p>
+      <ol class="steps">
+        <li>Open <b>Google Agenda</b> op een computer en klik op het tandwiel, dan op <b>Instellingen</b>.</li>
+        <li>Klik links onder <i>Instellingen voor mijn agenda's</i> op je eigen agenda.</li>
+        <li>Scrol naar <b>Agenda integreren</b> en kopieer het <b>Geheime adres in iCal-indeling</b>.</li>
+        <li>Plak het hieronder. Stuur het adres naar jezelf als je het op je telefoon wilt plakken.</li>
+      </ol>
+      <p class="hint">Outlook of iCloud? Daar heet het "Agenda publiceren" (ICS-link) of "Openbare agenda".</p>
+      <form class="form" id="impForm" novalidate>
+        <div class="field"><label for="impUrl">Agenda-adres</label><input id="impUrl" type="url" inputmode="url" autocomplete="off" placeholder="https://calendar.google.com/calendar/ical/…/basic.ics"></div>
+        <p class="err" id="impErr" hidden></p>
+        <button class="btn primary" id="impLinkBtn" type="submit">Koppelen</button>
+      </form>
+    </div>
+    <div class="impstatus" id="impStatus" hidden>
+      <div class="txt" id="impStatusTxt"></div>
+      <div class="actions" id="impStatusBtns"></div>
+    </div>
+    <label class="filepick">
+      <input type="file" id="impFile" accept=".ics,text/calendar">
+      <span>Of kies een agenda-bestand (.ics)</span>
+    </label>
+    <h4 id="impListH">Nieuw uit je andere agenda</h4>
+    <div class="list" id="impList"></div>
+  </section>
 </div>
 
 <button class="fab" id="fab" type="button" aria-label="Nieuwe afspraak" hidden>+</button>

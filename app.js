@@ -24,6 +24,9 @@ let sel = ymd(now);
 let form = { who: "samen", emoji: EMOJI[0] };
 let confirmDel = null;
 let channel = null;
+let impSource = null;     // { last_synced, last_error } or null
+let impItems = [];        // items with state 'new'
+let impLoaded = false, impBusy = false, confirmUnlink = false;
 
 /* ---------- helpers ---------- */
 function ymd(d) { return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
@@ -112,6 +115,8 @@ async function startApp(session) {
   await loadEvents();
   subscribe();
   refreshPushCard();
+  await loadImport();
+  syncImport(30 * 60 * 1000);
 }
 let started = false;
 sb.auth.onAuthStateChange((evt, session) => {
@@ -161,8 +166,14 @@ $("mTest").onclick = async () => {
 
 /* ---------- tabs & nav ---------- */
 let view = "cal";
-function setView(v) { view = v; $("tabCal").setAttribute("aria-selected", v === "cal"); $("tabReq").setAttribute("aria-selected", v === "req"); $("viewCal").hidden = v !== "cal"; $("viewReq").hidden = v !== "req"; render(); }
-$("tabCal").onclick = () => setView("cal"); $("tabReq").onclick = () => setView("req");
+function setView(v) {
+  view = v;
+  $("tabCal").setAttribute("aria-selected", v === "cal"); $("tabReq").setAttribute("aria-selected", v === "req"); $("tabImp").setAttribute("aria-selected", v === "imp");
+  $("viewCal").hidden = v !== "cal"; $("viewReq").hidden = v !== "req"; $("viewImp").hidden = v !== "imp";
+  render();
+  if (v === "imp") syncImport(2 * 60 * 1000);
+}
+$("tabCal").onclick = () => setView("cal"); $("tabReq").onclick = () => setView("req"); $("tabImp").onclick = () => setView("imp");
 $("todayBtn").onclick = () => { const t = new Date(); cur = new Date(t.getFullYear(), t.getMonth(), 1); sel = ymd(t); renderCal(); };
 if (location.hash === "#verzoeken") setView("req");
 
@@ -194,10 +205,11 @@ $("nextBtn").onclick = () => shiftMonth(1);
 
 /* ---------- rendering ---------- */
 const approved = () => events.filter((e) => e.status === "approved");
-function render() { if (!me) return; renderCal(); renderReq(); renderBadge(); }
+function render() { if (!me) return; renderCal(); renderReq(); renderImp(); renderBadge(); }
 function renderBadge() {
   const n = events.filter((e) => e.status === "pending" && e.created_by !== me).length;
   $("badge").hidden = !n; $("badge").textContent = n;
+  const ni = impItems.length; $("impBadge").hidden = !ni; $("impBadge").textContent = ni > 99 ? "99+" : ni;
   document.title = (n ? "(" + n + ") " : "") + "Karel & Sofie";
   try { if (navigator.setAppBadge) n ? navigator.setAppBadge(n) : navigator.clearAppBadge(); } catch {}
 }
@@ -369,6 +381,118 @@ $("addForm").onsubmit = async (e) => {
     await loadEvents();
   } finally { $("sendBtn").disabled = false; }
 };
+
+/* ---------- overnemen uit een andere agenda ---------- */
+const fTime = new Intl.DateTimeFormat("nl-NL", { hour: "2-digit", minute: "2-digit" });
+const fWhen = new Intl.DateTimeFormat("nl-NL", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+
+async function loadImport() {
+  if (!me) return;
+  const [s, i] = await Promise.all([
+    sb.from("import_sources").select("last_synced,last_error").maybeSingle(),
+    sb.from("import_items").select("*").eq("state", "new").order("date").order("start_time").limit(300),
+  ]);
+  if (!s.error) impSource = s.data || null;
+  if (!i.error) impItems = i.data || [];
+  impLoaded = true;
+  renderImp(); renderBadge();
+}
+async function syncImport(maxAgeMs) {
+  if (!me || impBusy) return;
+  const last = Number(ls.get("ks-imp-sync-" + me) || 0);
+  if (Date.now() - last < maxAgeMs) return;
+  ls.set("ks-imp-sync-" + me, String(Date.now()));
+  impBusy = true; renderImp();
+  const { data } = await sb.functions.invoke("import", { body: { action: "sync" } });
+  impBusy = false;
+  await loadImport();
+  if (data?.added && view !== "imp") toast(data.added === 1 ? "1 nieuwe afspraak om over te nemen" : data.added + " nieuwe afspraken om over te nemen", "Uit je andere agenda.", [["primary", "Bekijken", () => setView("imp")]]);
+}
+async function importCall(body, okText) {
+  impBusy = true; renderImp();
+  const { data, error } = await sb.functions.invoke("import", { body });
+  impBusy = false;
+  let msg = data?.error;
+  if (error && !msg) { try { msg = (await error.context.json()).error; } catch { msg = "Dat lukte niet. Controleer je internet."; } }
+  await loadImport();
+  if (msg) return { error: msg };
+  if (okText) toast(okText(data), data.found ? "Kies per afspraak of hij erin moet." : "");
+  ls.set("ks-imp-sync-" + me, String(Date.now()));
+  return data;
+}
+$("impForm").onsubmit = async (e) => {
+  e.preventDefault();
+  const url = $("impUrl").value.trim();
+  $("impErr").hidden = true;
+  if (!url) { $("impErr").textContent = "Plak eerst het agenda-adres."; $("impErr").hidden = false; return; }
+  const r = await importCall({ action: "link", url }, (d) => "Gekoppeld! " + (d.found === 1 ? "1 afspraak" : d.found + " afspraken") + " gevonden");
+  if (r?.error) { $("impErr").textContent = r.error; $("impErr").hidden = false; } else $("impUrl").value = "";
+};
+$("impFile").onchange = async (e) => {
+  const f = e.target.files && e.target.files[0]; e.target.value = "";
+  if (!f) return;
+  if (f.size > 5_000_000) return toast("Dit bestand is te groot", "Kies een kleiner agenda-bestand.");
+  const ics = await f.text();
+  const r = await importCall({ action: "file", ics }, (d) => (d.added === 1 ? "1 afspraak" : d.added + " afspraken") + " ingelezen");
+  if (r?.error) toast("Inlezen lukte niet", r.error);
+};
+
+function asEvent(it, who) {
+  return { title: it.title, date: it.date, all_day: it.all_day, start_time: it.start_time, end_time: it.end_time, note: it.note, who, emoji: "📅" };
+}
+async function takeOver(it, who) {
+  const needs = who === "samen";
+  const { data, error } = await sb.from("events").insert({ ...asEvent(it, who), created_by: me, status: needs ? "pending" : "approved" }).select("id").single();
+  if (error) return toast("Overnemen lukte niet", "Controleer je internet en probeer het opnieuw.");
+  await sb.from("import_items").update({ state: "added" }).eq("id", it.id);
+  notify(data.id, "new");
+  impItems = impItems.filter((x) => x.id !== it.id);
+  toast(needs ? "Verstuurd naar " + OTHER[me] : "Staat in de agenda", needs ? "Het staat erin zodra " + OTHER[me] + " ja zegt." : it.title);
+  renderImp(); renderBadge(); loadEvents();
+}
+async function skipItem(it) {
+  impItems = impItems.filter((x) => x.id !== it.id); renderImp(); renderBadge();
+  await sb.from("import_items").update({ state: "skipped" }).eq("id", it.id);
+}
+
+function renderImp() {
+  if (!me) return;
+  const linked = !!impSource;
+  $("impSetup").hidden = linked || !impLoaded;
+  $("impStatus").hidden = !linked;
+  $("impLinkBtn").disabled = impBusy; $("impLinkBtn").textContent = impBusy && !linked ? "Bezig met koppelen…" : "Koppelen";
+  if (linked) {
+    const T = $("impStatusTxt"); T.textContent = "Je andere agenda is gekoppeld";
+    const sub = el("span");
+    if (impBusy) sub.textContent = "Bezig met bijwerken…";
+    else if (impSource.last_error) { sub.textContent = impSource.last_error; sub.className = "bad"; }
+    else if (impSource.last_synced) { const d = new Date(impSource.last_synced); sub.textContent = "Bijgewerkt " + (ymd(d) === ymd(new Date()) ? "om " + fTime.format(d) : fWhen.format(d)); }
+    T.appendChild(sub);
+    const B = $("impStatusBtns"); B.textContent = "";
+    const mk = (cls, txt, fn) => { const b = el("button", "btn " + cls, txt); b.type = "button"; b.disabled = impBusy; b.onclick = fn; return b; };
+    if (confirmUnlink) {
+      B.append(mk("nope", "Ja, ontkoppelen", async () => { confirmUnlink = false; await importCall({ action: "unlink" }, () => "Ontkoppeld"); }), mk("nope", "Nee", () => { confirmUnlink = false; renderImp(); }));
+    } else {
+      B.append(mk("primary", "Vernieuwen", () => importCall({ action: "sync" }, (d) => d.added ? (d.added === 1 ? "1 nieuwe afspraak" : d.added + " nieuwe afspraken") : "Alles is bijgewerkt")), mk("nope", "Ontkoppelen", () => { confirmUnlink = true; renderImp(); }));
+    }
+  }
+  const L = $("impList"); L.textContent = "";
+  $("impListH").hidden = !linked && !impItems.length;
+  if (!impLoaded) { L.appendChild(el("div", "empty", "Laden…")); return; }
+  if (!impItems.length) { if (linked) L.appendChild(el("div", "empty", "Niks nieuws. Nieuwe afspraken uit je andere agenda verschijnen hier vanzelf.")); return; }
+  const mineCls = "as-" + me.toLowerCase();
+  impItems.forEach((it) => {
+    const c = card({ ...it, who: "samen", emoji: "📅" });
+    c.className = "ev w-imp";
+    const body = c.querySelector(".body"); const meta = body.querySelector(".meta");
+    meta.textContent = fShort.format(parse(it.date)) + " · " + timeText(it);
+    const a = el("div", "actions");
+    const b = (cls, txt, fn) => { const x = el("button", "btn " + cls, txt); x.type = "button"; x.onclick = fn; return x; };
+    a.append(b(mineCls, "Alleen ik", () => takeOver(it, me.toLowerCase())), b("as-samen", "Samen", () => takeOver(it, "samen")), b("nope", "Niet", () => skipItem(it)));
+    body.appendChild(a);
+    L.appendChild(c);
+  });
+}
 
 /* ---------- push notifications ---------- */
 const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
