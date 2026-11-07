@@ -163,10 +163,34 @@ $("mTest").onclick = async () => {
 let view = "cal";
 function setView(v) { view = v; $("tabCal").setAttribute("aria-selected", v === "cal"); $("tabReq").setAttribute("aria-selected", v === "req"); $("viewCal").hidden = v !== "cal"; $("viewReq").hidden = v !== "req"; render(); }
 $("tabCal").onclick = () => setView("cal"); $("tabReq").onclick = () => setView("req");
-$("prevBtn").onclick = () => { cur = new Date(cur.getFullYear(), cur.getMonth() - 1, 1); renderCal(); };
-$("nextBtn").onclick = () => { cur = new Date(cur.getFullYear(), cur.getMonth() + 1, 1); renderCal(); };
 $("todayBtn").onclick = () => { const t = new Date(); cur = new Date(t.getFullYear(), t.getMonth(), 1); sel = ymd(t); renderCal(); };
 if (location.hash === "#verzoeken") setView("req");
+
+/* ---------- swipe between months ---------- */
+const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+function shiftMonth(dir) {
+  cur = new Date(cur.getFullYear(), cur.getMonth() + dir, 1);
+  renderCal();
+  if (reduceMotion) return;
+  const g = $("grid");
+  g.classList.remove("slide-l", "slide-r"); void g.offsetWidth;
+  g.classList.add(dir > 0 ? "slide-l" : "slide-r");
+}
+$("prevBtn").onclick = () => shiftMonth(-1);
+$("nextBtn").onclick = () => shiftMonth(1);
+(() => {
+  const area = document.querySelector(".cal");
+  let x0 = 0, y0 = 0, t0 = 0, tracking = false;
+  area.addEventListener("touchstart", (e) => {
+    if (e.touches.length !== 1) { tracking = false; return; }
+    x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; t0 = Date.now(); tracking = true;
+  }, { passive: true });
+  area.addEventListener("touchend", (e) => {
+    if (!tracking) return; tracking = false;
+    const dx = e.changedTouches[0].clientX - x0, dy = e.changedTouches[0].clientY - y0;
+    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5 && Date.now() - t0 < 800) shiftMonth(dx < 0 ? 1 : -1);
+  }, { passive: true });
+})();
 
 /* ---------- rendering ---------- */
 const approved = () => events.filter((e) => e.status === "approved");

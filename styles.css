@@ -159,3 +159,10 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
 .pushcard .txt{flex:1;min-width:0;font-weight:700;font-size:14px}
 .pushcard .txt span{display:block;color:var(--muted);font-weight:600;font-size:13px}
 .pushcard .btn{flex:none}
+
+/* month swipe */
+.cal{touch-action:pan-y;overflow:hidden}
+.grid.slide-l{animation:slideL .22s ease-out}
+.grid.slide-r{animation:slideR .22s ease-out}
+@keyframes slideL{from{transform:translateX(40px);opacity:.3}to{transform:none;opacity:1}}
+@keyframes slideR{from{transform:translateX(-40px);opacity:.3}to{transform:none;opacity:1}}
