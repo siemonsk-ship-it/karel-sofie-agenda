@@ -1,0 +1,406 @@
+import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm";
+
+const SUPABASE_URL = "https://zmrwhlsnftvdpmcsjuii.supabase.co";
+const SUPABASE_KEY = "sb_publishable_iOJIZswa4AIfuipwxB76TQ_7Lbd_Do1";
+const sb = createClient(SUPABASE_URL, SUPABASE_KEY, {
+  auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
+});
+
+const EMOJI = ["💛", "🍝", "🎬", "🎉", "✈️", "🏠", "🏃", "🎂", "☕", "🛒", "👨‍👩‍👧", "🍷"];
+const OTHER = { Karel: "Sofie", Sofie: "Karel" };
+const WHO_LABEL = { samen: "Samen", karel: "Karel", sofie: "Sofie" };
+const $ = (id) => document.getElementById(id);
+const ls = {
+  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch {} },
+};
+
+let me = null;
+let events = [];
+let loaded = false;
+const now = new Date();
+let cur = new Date(now.getFullYear(), now.getMonth(), 1);
+let sel = ymd(now);
+let form = { who: "samen", emoji: EMOJI[0] };
+let confirmDel = null;
+let channel = null;
+
+/* ---------- helpers ---------- */
+function ymd(d) { return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
+function parse(s) { const p = s.split("-").map(Number); return new Date(p[0], p[1] - 1, p[2]); }
+const fMonth = new Intl.DateTimeFormat("nl-NL", { month: "long", year: "numeric" });
+const fDay = new Intl.DateTimeFormat("nl-NL", { weekday: "long", day: "numeric", month: "long" });
+const fShort = new Intl.DateTimeFormat("nl-NL", { weekday: "short", day: "numeric", month: "short" });
+function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+function timeText(ev) { return ev.all_day ? "Hele dag" : (ev.start_time || "") + (ev.end_time ? " – " + ev.end_time : ""); }
+function sortEv(a, b) { return (a.date + (a.all_day ? "00" : a.start_time || "")).localeCompare(b.date + (b.all_day ? "00" : b.start_time || "")); }
+function showNote(t) { $("note").textContent = t || ""; $("note").hidden = !t; }
+
+/* ---------- holidays ---------- */
+function easter(y) { const a = y % 19, b = Math.floor(y / 100), c = y % 100, d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - g + 15) % 30, i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451), n = h + l - 7 * m + 114; return new Date(y, Math.floor(n / 31) - 1, (n % 31) + 1); }
+const hCache = {};
+function holidays(y) {
+  if (hCache[y]) return hCache[y];
+  const H = {}; const D = (m, d) => new Date(y, m - 1, d); const E = easter(y); const off = (n) => new Date(y, E.getMonth(), E.getDate() + n);
+  const add = (d, full, short) => { const k = ymd(d); if (H[k]) H[k].full += " & " + full; else H[k] = { full, short }; };
+  const nthSun = (m, n) => { const f = D(m, 1); return D(m, 1 + (7 - f.getDay()) % 7 + 7 * (n - 1)); };
+  add(D(1, 1), "Nieuwjaarsdag", "Nieuwjaar"); add(D(2, 14), "Valentijnsdag", "Valentijn");
+  add(off(-2), "Goede Vrijdag", "Goede Vr."); add(E, "Eerste Paasdag", "Pasen"); add(off(1), "Tweede Paasdag", "2e Pasen");
+  let kd = D(4, 27); if (kd.getDay() === 0) kd = D(4, 26); add(kd, "Koningsdag", "Koningsdag");
+  add(D(5, 5), "Bevrijdingsdag", "Bevrijding"); add(off(39), "Hemelvaartsdag", "Hemelvaart");
+  add(nthSun(5, 2), "Moederdag", "Moederdag"); add(off(49), "Eerste Pinksterdag", "Pinksteren"); add(off(50), "Tweede Pinksterdag", "2e Pinkst.");
+  add(nthSun(6, 3), "Vaderdag", "Vaderdag"); add(D(12, 5), "Pakjesavond", "Sinterklaas");
+  add(D(12, 25), "Eerste Kerstdag", "Kerst"); add(D(12, 26), "Tweede Kerstdag", "2e Kerst"); add(D(12, 31), "Oudejaarsavond", "Oudjaar");
+  return (hCache[y] = H);
+}
+
+/* ---------- login ---------- */
+let createMode = false;
+function setLoginMode(c) {
+  createMode = c;
+  $("loginLead").textContent = c ? "Kies je eigen wachtwoord. Dat doe je maar één keer." : "Log in om jullie agenda te openen.";
+  $("loginBtn").textContent = c ? "Account aanmaken" : "Inloggen";
+  $("modeBtn").textContent = c ? "Ik heb al een wachtwoord" : "Eerste keer? Maak je wachtwoord aan";
+  $("lPass").autocomplete = c ? "new-password" : "current-password";
+  $("loginErr").hidden = true;
+}
+$("modeBtn").onclick = () => setLoginMode(!createMode);
+$("loginForm").onsubmit = async (e) => {
+  e.preventDefault();
+  const email = $("lEmail").value.trim().toLowerCase();
+  const password = $("lPass").value;
+  const err = (m) => { $("loginErr").textContent = m; $("loginErr").hidden = false; };
+  if (!email) return err("Vul je e-mailadres in.");
+  if (password.length < 8) return err("Je wachtwoord moet minstens 8 tekens hebben.");
+  $("loginBtn").disabled = true;
+  try {
+    if (createMode) {
+      const r = await fetch(SUPABASE_URL + "/functions/v1/account", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", apikey: SUPABASE_KEY },
+        body: JSON.stringify({ email, password }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) return err(j.error || "Account aanmaken lukte niet.");
+    }
+    const { error } = await sb.auth.signInWithPassword({ email, password });
+    if (error) return err(/invalid/i.test(error.message) ? "E-mailadres of wachtwoord klopt niet." : "Inloggen lukte niet. Controleer je internet.");
+  } catch {
+    err("Geen verbinding. Controleer je internet.");
+  } finally {
+    $("loginBtn").disabled = false;
+  }
+};
+
+/* ---------- session ---------- */
+async function startApp(session) {
+  if (!session) {
+    me = null; if (channel) { sb.removeChannel(channel); channel = null; }
+    $("appView").hidden = true; $("fab").hidden = true; $("loginView").hidden = false;
+    return;
+  }
+  const email = session.user.email.toLowerCase();
+  const { data: m } = await sb.from("members").select("name").ilike("email", email).maybeSingle();
+  if (!m) {
+    await sb.auth.signOut();
+    $("loginErr").textContent = "Dit e-mailadres hoort niet bij deze agenda."; $("loginErr").hidden = false;
+    return;
+  }
+  me = m.name;
+  $("loginView").hidden = true; $("appView").hidden = false; $("fab").hidden = false;
+  renderMe(); render();
+  await loadEvents();
+  subscribe();
+  refreshPushCard();
+}
+let started = false;
+sb.auth.onAuthStateChange((evt, session) => {
+  if (evt === "INITIAL_SESSION" || evt === "SIGNED_IN" || evt === "SIGNED_OUT") {
+    if (evt === "SIGNED_IN" && started && me) return;
+    started = true;
+    startApp(session);
+  }
+});
+
+async function loadEvents() {
+  const slow = setTimeout(() => { if (!loaded) showNote("De agenda is nog niet bereikbaar. Even geduld, of check je internet."); }, 10000);
+  const { data, error } = await sb.from("events").select("*").order("date");
+  clearTimeout(slow);
+  if (error) { showNote("De agenda kon niet geladen worden. Trek omlaag of open de app opnieuw."); return; }
+  if ($("note").textContent.startsWith("De agenda")) showNote("");
+  events = data || []; loaded = true;
+  render(); processNotices();
+}
+let reloadTimer = null;
+function subscribe() {
+  if (channel) return;
+  channel = sb.channel("events-live")
+    .on("postgres_changes", { event: "*", schema: "public", table: "events" }, () => {
+      clearTimeout(reloadTimer); reloadTimer = setTimeout(loadEvents, 250);
+    })
+    .subscribe();
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden && me) loadEvents(); });
+
+/* ---------- menu ---------- */
+function renderMe() {
+  $("meName").textContent = "Ik ben " + me;
+  $("meAv").textContent = me[0]; $("meAv").className = "avatar av-" + me;
+  $("menuWho").textContent = "Ingelogd als " + me;
+}
+$("meBtn").onclick = (e) => { e.stopPropagation(); const open = $("menu").hidden; $("menu").hidden = !open; $("meBtn").setAttribute("aria-expanded", open); };
+document.addEventListener("click", (e) => { if (!$("menu").hidden && !e.target.closest(".mewrap")) $("menu").hidden = true; });
+$("mOut").onclick = async () => { $("menu").hidden = true; await unsubscribePush(); await sb.auth.signOut(); };
+$("mPush").onclick = () => { $("menu").hidden = true; enablePush(); };
+$("mTest").onclick = async () => {
+  $("menu").hidden = true;
+  const r = await sb.functions.invoke("notify", { body: { test: true } });
+  if (r.error) toast("Testmelding lukte niet", "Probeer het later nog eens.");
+  else if (!r.data?.sent) toast("Geen melding verstuurd", "Zet eerst meldingen aan op deze telefoon.");
+};
+
+/* ---------- tabs & nav ---------- */
+let view = "cal";
+function setView(v) { view = v; $("tabCal").setAttribute("aria-selected", v === "cal"); $("tabReq").setAttribute("aria-selected", v === "req"); $("viewCal").hidden = v !== "cal"; $("viewReq").hidden = v !== "req"; render(); }
+$("tabCal").onclick = () => setView("cal"); $("tabReq").onclick = () => setView("req");
+$("prevBtn").onclick = () => { cur = new Date(cur.getFullYear(), cur.getMonth() - 1, 1); renderCal(); };
+$("nextBtn").onclick = () => { cur = new Date(cur.getFullYear(), cur.getMonth() + 1, 1); renderCal(); };
+$("todayBtn").onclick = () => { const t = new Date(); cur = new Date(t.getFullYear(), t.getMonth(), 1); sel = ymd(t); renderCal(); };
+if (location.hash === "#verzoeken") setView("req");
+
+/* ---------- rendering ---------- */
+const approved = () => events.filter((e) => e.status === "approved");
+function render() { if (!me) return; renderCal(); renderReq(); renderBadge(); }
+function renderBadge() {
+  const n = events.filter((e) => e.status === "pending" && e.created_by !== me).length;
+  $("badge").hidden = !n; $("badge").textContent = n;
+  document.title = (n ? "(" + n + ") " : "") + "Karel & Sofie";
+  try { if (navigator.setAppBadge) n ? navigator.setAppBadge(n) : navigator.clearAppBadge(); } catch {}
+}
+function renderCal() {
+  $("monthTitle").textContent = fMonth.format(cur);
+  const byDay = {}; approved().forEach((e) => { (byDay[e.date] = byDay[e.date] || []).push(e); });
+  const g = $("grid"); g.textContent = "";
+  const off = (cur.getDay() + 6) % 7; const start = new Date(cur.getFullYear(), cur.getMonth(), 1 - off);
+  const today = ymd(new Date());
+  for (let i = 0; i < 42; i++) {
+    const d = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i); const k = ymd(d);
+    const c = el("button", "cell"); c.type = "button";
+    if (d.getMonth() !== cur.getMonth()) c.classList.add("out");
+    if (k === today) c.classList.add("today"); if (k === sel) c.classList.add("sel");
+    c.appendChild(el("span", "n", d.getDate()));
+    const hol = holidays(d.getFullYear())[k];
+    if (hol) { const hs = el("span", "hol", hol.short); hs.title = hol.full; c.appendChild(hs); }
+    const list = (byDay[k] || []).sort(sortEv);
+    c.setAttribute("aria-label", fDay.format(d) + (hol ? ", " + hol.full : "") + (list.length ? ", " + list.length + " afspraken" : ""));
+    if (list.length) { const dots = el("span", "dots"); list.slice(0, 4).forEach((e) => dots.appendChild(el("span", "dot d-" + (e.who || "samen")))); c.appendChild(dots); }
+    c.onclick = () => { sel = k; if (d.getMonth() !== cur.getMonth()) cur = new Date(d.getFullYear(), d.getMonth(), 1); confirmDel = null; renderCal(); };
+    g.appendChild(c);
+  }
+  renderDay(byDay[sel] || []);
+}
+function card(e) {
+  const c = el("div", "ev w-" + (e.who || "samen"));
+  c.appendChild(el("div", "emo", e.emoji || "💛"));
+  const b = el("div", "body");
+  b.appendChild(el("div", "t", e.title));
+  const m = el("div", "meta", timeText(e)); m.appendChild(el("span", "chip c-" + (e.who || "samen"), WHO_LABEL[e.who] || "Samen")); b.appendChild(m);
+  if (e.note) b.appendChild(el("div", "txt", e.note));
+  c.appendChild(b); return c;
+}
+function renderDay(list) {
+  const d = parse(sel); const t = ymd(new Date());
+  $("dayTitle").textContent = sel === t ? "Vandaag, " + fDay.format(d).replace(/^\S+ /, "") : fDay.format(d);
+  const hol = holidays(d.getFullYear())[sel]; $("dayHol").hidden = !hol; $("dayHol").textContent = hol ? hol.full : "";
+  list = list.slice().sort(sortEv);
+  $("dayCount").textContent = list.length ? (list.length === 1 ? "1 afspraak" : list.length + " afspraken") : "";
+  const L = $("dayList"); L.textContent = "";
+  if (!loaded) { L.appendChild(el("div", "empty", "De agenda wordt geladen…")); return; }
+  if (!list.length) { L.appendChild(el("div", "empty", "Nog niks gepland. Tik op + om iets toe te voegen.")); return; }
+  list.forEach((e) => {
+    const c = card(e); const box = el("div");
+    if (confirmDel === e.id) {
+      const y = el("button", "mini danger", "Ja, weg"); y.type = "button"; y.onclick = () => remove(e.id);
+      const n = el("button", "mini", "Nee"); n.type = "button"; n.onclick = () => { confirmDel = null; renderCal(); };
+      box.append(y, n);
+    } else { const x = el("button", "mini", "Verwijder"); x.type = "button"; x.onclick = () => { confirmDel = e.id; renderCal(); }; box.appendChild(x); }
+    c.appendChild(box); L.appendChild(c);
+  });
+}
+function renderReq() {
+  const V = $("viewReq"); V.textContent = "";
+  const other = OTHER[me];
+  const forMe = events.filter((e) => e.status === "pending" && e.created_by !== me).sort(sortEv);
+  const mine = events.filter((e) => e.status === "pending" && e.created_by === me).sort(sortEv);
+  const decl = events.filter((e) => e.status === "declined" && e.created_by === me).sort(sortEv);
+  const btn = (cls, txt, fn) => { const b = el("button", "btn " + cls, txt); b.type = "button"; b.onclick = fn; return b; };
+  function section(title, list, emptyText, actions) {
+    V.appendChild(el("h4", null, title));
+    const L = el("div", "list");
+    if (!list.length) L.appendChild(el("div", "empty", emptyText));
+    list.forEach((e) => {
+      const c = card(e); const body = c.querySelector(".body");
+      const meta = body.querySelector(".meta"); meta.insertBefore(document.createTextNode(fShort.format(parse(e.date)) + " · "), meta.firstChild);
+      const a = el("div", "actions"); actions(e).forEach((x) => a.appendChild(x)); body.appendChild(a);
+      L.appendChild(c);
+    });
+    V.appendChild(L);
+  }
+  section("Wacht op jou", forMe, "Niks te keuren. Lekker rustig.", (e) => [btn("yes", "Goedkeuren", () => decide(e.id, "approved")), btn("nope", "Afwijzen", () => decide(e.id, "declined"))]);
+  section("Wacht op " + other, mine, "Je hebt niks openstaan.", (e) => [btn("nope", "Intrekken", () => remove(e.id))]);
+  if (decl.length) section("Afgewezen door " + other, decl, "", (e) => [btn("primary", "Opnieuw voorstellen", () => openAdd(e)), btn("nope", "Weghalen", () => remove(e.id))]);
+}
+
+/* ---------- in-app popups ---------- */
+function toast(title, sub, actions, ms) {
+  const t = el("div", "toast"); t.appendChild(el("div", "tt", title)); if (sub) t.appendChild(el("div", "ts", sub));
+  if (actions && actions.length) { const a = el("div", "actions"); actions.forEach(([cls, txt, fn]) => { const b = el("button", "btn " + cls, txt); b.type = "button"; b.onclick = () => { fn(); t.remove(); }; a.appendChild(b); }); t.appendChild(a); }
+  else t.onclick = () => t.remove();
+  $("toasts").appendChild(t);
+  setTimeout(() => t.remove(), ms || (actions ? 12000 : 4500));
+}
+function goTo(e) { sel = e.date; const d = parse(e.date); cur = new Date(d.getFullYear(), d.getMonth(), 1); setView("cal"); }
+function processNotices() {
+  if (!me || !loaded) return;
+  const key = "ks-seen-" + me; const raw = ls.get(key); let seen = {}; try { seen = JSON.parse(raw || "{}"); } catch {}
+  const newReq = [], decided = [], added = [];
+  events.forEach((e) => {
+    const prev = seen[e.id];
+    if (prev === undefined && e.status === "pending" && e.created_by !== me) newReq.push(e);
+    if (prev === undefined && raw && e.status === "approved" && e.created_by !== me && !e.decided_by) added.push(e);
+    if (prev === "pending" && e.created_by === me && (e.status === "approved" || e.status === "declined")) decided.push(e);
+  });
+  const next = {}; events.forEach((e) => (next[e.id] = e.status)); ls.set(key, JSON.stringify(next));
+  const other = OTHER[me];
+  const line = (e) => (e.emoji || "") + " " + e.title + " · " + fShort.format(parse(e.date)) + " · " + timeText(e);
+  if (newReq.length > 2) toast(other + " heeft " + newReq.length + " nieuwe voorstellen", "Bekijk ze en keur goed of af.", [["primary", "Bekijken", () => setView("req")]]);
+  else newReq.forEach((e) => toast(other + " wil iets in de agenda zetten", line(e), [["yes", "Goedkeuren", () => decide(e.id, "approved")], ["nope", "Afwijzen", () => decide(e.id, "declined")]]));
+  if (added.length > 2) toast(other + " heeft " + added.length + " dingen toegevoegd", "Kijk in de agenda.");
+  else added.forEach((e) => toast(other + " heeft iets toegevoegd", line(e) + " · voor " + WHO_LABEL[e.who], [["primary", "Bekijken", () => goTo(e)]]));
+  decided.forEach((e) => toast(e.status === "approved" ? other + " zegt ja! 🎉" : other + " heeft afgewezen", e.title + " · " + fShort.format(parse(e.date)), null, 6000));
+}
+
+/* ---------- writes ---------- */
+function notify(event_id, kind) { sb.functions.invoke("notify", { body: { event_id, kind } }).catch(() => {}); }
+async function decide(id, status) {
+  const { error } = await sb.from("events").update({ status }).eq("id", id);
+  if (error) return toast("Dat lukte niet", /beslist/.test(error.message) ? "Dit verzoek is al beslist." : "Controleer je internet en probeer het opnieuw.");
+  notify(id, "decided");
+  toast(status === "approved" ? "Staat in de agenda" : "Afgewezen", OTHER[me] + " krijgt een seintje.");
+  loadEvents();
+}
+async function remove(id) {
+  confirmDel = null;
+  const { error } = await sb.from("events").delete().eq("id", id);
+  if (error) return toast("Verwijderen lukte niet", "Controleer je internet en probeer het opnieuw.");
+  loadEvents();
+}
+
+/* ---------- add sheet ---------- */
+const emoBox = $("fEmo");
+EMOJI.forEach((x) => { const b = el("button", null, x); b.type = "button"; b.setAttribute("aria-pressed", "false"); b.setAttribute("aria-label", "Plaatje " + x); b.onclick = () => { form.emoji = x; syncForm(); }; emoBox.appendChild(b); });
+$("fWho").querySelectorAll("button").forEach((b) => (b.onclick = () => { form.who = b.dataset.v; syncForm(); }));
+$("fAllDay").onchange = syncForm;
+function syncForm() {
+  $("fWho").querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.v === form.who));
+  emoBox.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", b.textContent === form.emoji));
+  $("timeRow").hidden = $("fAllDay").checked;
+  const needs = form.who === "samen";
+  $("addHint").textContent = needs ? "Iets voor jullie samen: komt in de agenda zodra " + OTHER[me] + " hem goedkeurt." : "Alleen voor " + WHO_LABEL[form.who] + ": komt meteen in de agenda.";
+  $("sendBtn").textContent = needs ? "Voorstellen" : "Toevoegen";
+}
+function openAdd(from) {
+  $("addForm").reset(); $("formErr").hidden = true;
+  $("fDate").value = from ? from.date : sel;
+  form = { who: from ? from.who : "samen", emoji: from ? from.emoji : EMOJI[0], reofferId: from ? from.id : null };
+  if (from) { $("fTitle").value = from.title; $("fNote").value = from.note || ""; $("fAllDay").checked = !!from.all_day; if (from.start_time) $("fStart").value = from.start_time; if (from.end_time) $("fEnd").value = from.end_time; }
+  syncForm(); $("addScrim").hidden = false; setTimeout(() => { try { $("fTitle").focus(); } catch {} }, 60);
+}
+const closeAdd = () => { $("addScrim").hidden = true; };
+$("fab").onclick = () => openAdd();
+$("cancelAdd").onclick = closeAdd;
+$("addScrim").onclick = (e) => { if (e.target === $("addScrim")) closeAdd(); };
+$("addForm").onsubmit = async (e) => {
+  e.preventDefault();
+  const title = $("fTitle").value.trim(), date = $("fDate").value, allDay = $("fAllDay").checked, start = $("fStart").value, end = $("fEnd").value;
+  const err = (m) => { $("formErr").textContent = m; $("formErr").hidden = false; };
+  if (!title) return err("Geef de afspraak een naam.");
+  if (!date) return err("Kies een datum.");
+  if (!allDay && !start) return err("Vul een begintijd in, of kies Hele dag.");
+  if (!allDay && end && end < start) return err("De eindtijd ligt voor de begintijd.");
+  const needs = form.who === "samen";
+  $("sendBtn").disabled = true;
+  try {
+    const { data, error } = await sb.from("events").insert({
+      title, date, all_day: allDay, start_time: allDay ? "" : start, end_time: allDay ? "" : end || "",
+      who: form.who, emoji: form.emoji, note: $("fNote").value.trim(), created_by: me, status: needs ? "pending" : "approved",
+    }).select("id").single();
+    if (error) return err("Opslaan lukte niet. Controleer je internet en probeer het opnieuw.");
+    if (form.reofferId) await sb.from("events").delete().eq("id", form.reofferId);
+    notify(data.id, "new");
+    closeAdd();
+    if (needs) toast("Verstuurd naar " + OTHER[me], "Het staat in de agenda zodra " + OTHER[me] + " ja zegt.");
+    else toast("Staat in de agenda", OTHER[me] + " krijgt een seintje.");
+    sel = date; const d = parse(date); cur = new Date(d.getFullYear(), d.getMonth(), 1);
+    await loadEvents();
+  } finally { $("sendBtn").disabled = false; }
+};
+
+/* ---------- push notifications ---------- */
+const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+const standalone = matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+const pushSupported = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+let swReg = null;
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("sw.js").then((r) => { swReg = r; refreshPushCard(); }).catch(() => {});
+  navigator.serviceWorker.addEventListener("message", (e) => { if (e.data === "open-requests") setView("req"); });
+}
+function b64ToUint8(b64) { const p = "=".repeat((4 - (b64.length % 4)) % 4); const raw = atob((b64 + p).replace(/-/g, "+").replace(/_/g, "/")); return Uint8Array.from([...raw].map((c) => c.charCodeAt(0))); }
+async function currentSub() { try { const r = swReg || (await navigator.serviceWorker.ready); return await r.pushManager.getSubscription(); } catch { return null; } }
+async function refreshPushCard() {
+  if (!me) return;
+  const card = $("pushCard");
+  if (isIOS && !standalone) {
+    card.hidden = false; $("pushBtn").hidden = true;
+    $("pushTxt").innerHTML = "Zet de app op je beginscherm<span>Tik in Safari op het deel-icoon en kies <b>Zet op beginscherm</b>. Open de app daarna vanaf het icoon, dan kun je meldingen aanzetten.</span>";
+    return;
+  }
+  if (!pushSupported) { card.hidden = true; return; }
+  $("pushBtn").hidden = false;
+  if (Notification.permission === "denied") {
+    card.hidden = false; $("pushBtn").hidden = true;
+    $("pushTxt").innerHTML = "Meldingen zijn geblokkeerd<span>Zet ze aan in de instellingen van je telefoon, bij deze app of je browser.</span>";
+    return;
+  }
+  const sub = Notification.permission === "granted" ? await currentSub() : null;
+  if (sub) { card.hidden = true; saveSub(sub); return; }
+  card.hidden = false;
+  $("pushTxt").innerHTML = "Meldingen staan uit<span>Zet ze aan, dan hoor je het als er iets nieuws in de agenda komt.</span>";
+}
+async function saveSub(sub) {
+  const j = sub.toJSON();
+  await sb.from("push_subscriptions").upsert({ endpoint: j.endpoint, member: me, p256dh: j.keys.p256dh, auth: j.keys.auth }, { onConflict: "endpoint" });
+}
+async function enablePush() {
+  if (!pushSupported) return toast("Meldingen werken hier niet", isIOS ? "Open de app vanaf je beginscherm." : "Gebruik Chrome of Samsung Internet.");
+  try {
+    const perm = await Notification.requestPermission();
+    if (perm !== "granted") { refreshPushCard(); return toast("Meldingen staan uit", "Je kunt ze later aanzetten via je naam rechtsboven."); }
+    const r = swReg || (await navigator.serviceWorker.ready);
+    const { data, error } = await sb.functions.invoke("notify", { method: "GET" });
+    if (error || !data?.publicKey) throw new Error("no key");
+    let sub = await r.pushManager.getSubscription();
+    if (!sub) sub = await r.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToUint8(data.publicKey) });
+    await saveSub(sub);
+    $("pushCard").hidden = true;
+    await sb.functions.invoke("notify", { body: { test: true } });
+    toast("Meldingen staan aan", "Je krijgt nu een testmelding.");
+  } catch {
+    toast("Meldingen aanzetten lukte niet", "Probeer het nog eens, of open de app opnieuw.");
+  }
+}
+$("pushBtn").onclick = enablePush;
+async function unsubscribePush() {
+  const sub = await currentSub();
+  if (sub) { try { await sb.from("push_subscriptions").delete().eq("endpoint", sub.endpoint); await sub.unsubscribe(); } catch {} }
+}

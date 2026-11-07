@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Karel &amp; Sofie</title>
+<meta name="description" content="De gedeelde agenda van Karel en Sofie">
+<meta name="theme-color" content="#F2F4FF" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#14162B" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Karel &amp; Sofie">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700;800&family=Nunito:wght@400;600;700;800&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- ============ LOGIN ============ -->
+<main class="login" id="loginView" hidden>
+  <div class="brand" aria-label="Karel en Sofie">
+    <span class="k">Karel</span>
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="var(--samen)" d="M12 21s-7.5-4.6-9.6-9.2C1 8.6 3 5 6.6 5c2.1 0 3.6 1.2 5.4 3.1C13.8 6.2 15.3 5 17.4 5 21 5 23 8.6 21.6 11.8 19.5 16.4 12 21 12 21z"/></svg>
+    <span class="s">Sofie</span>
+  </div>
+  <p class="lead" id="loginLead">Log in om jullie agenda te openen.</p>
+  <form class="card form" id="loginForm" novalidate>
+    <div class="field"><label for="lEmail">E-mailadres</label><input id="lEmail" type="email" autocomplete="email" inputmode="email" required></div>
+    <div class="field"><label for="lPass">Wachtwoord</label><input id="lPass" type="password" autocomplete="current-password" minlength="8" required></div>
+    <p class="err" id="loginErr" hidden></p>
+    <button class="btn primary" id="loginBtn" type="submit">Inloggen</button>
+  </form>
+  <button class="linkbtn" id="modeBtn" type="button">Eerste keer? Maak je wachtwoord aan</button>
+</main>
+
+<!-- ============ APP ============ -->
+<div class="wrap" id="appView" hidden>
+  <header>
+    <div class="brand" aria-label="Karel en Sofie">
+      <span class="k">Karel</span>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="var(--samen)" d="M12 21s-7.5-4.6-9.6-9.2C1 8.6 3 5 6.6 5c2.1 0 3.6 1.2 5.4 3.1C13.8 6.2 15.3 5 17.4 5 21 5 23 8.6 21.6 11.8 19.5 16.4 12 21 12 21z"/></svg>
+      <span class="s">Sofie</span>
+    </div>
+    <div class="mewrap">
+      <button class="me" id="meBtn" type="button" aria-haspopup="true" aria-expanded="false"><span class="avatar" id="meAv">?</span><span id="meName"></span></button>
+      <div class="menu" id="menu" hidden>
+        <div class="sub" id="menuWho"></div>
+        <button type="button" id="mPush">Meldingen aanzetten</button>
+        <button type="button" id="mTest">Testmelding sturen</button>
+        <button type="button" id="mOut">Uitloggen</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="tabs" role="tablist">
+    <button class="tab" id="tabCal" role="tab" aria-selected="true" type="button">Agenda</button>
+    <button class="tab" id="tabReq" role="tab" aria-selected="false" type="button">Verzoeken <span class="badge" id="badge" hidden>0</span></button>
+  </div>
+
+  <div class="pushcard" id="pushCard" hidden>
+    <div class="txt" id="pushTxt">Meldingen staan uit<span>Zet ze aan, dan hoor je het als er iets nieuws in de agenda komt.</span></div>
+    <button class="btn primary" id="pushBtn" type="button">Aanzetten</button>
+  </div>
+
+  <div class="note" id="note" hidden></div>
+
+  <section id="viewCal">
+    <div class="monthbar">
+      <h2 id="monthTitle"></h2>
+      <div class="nav">
+        <button class="todaybtn" id="todayBtn" type="button">Vandaag</button>
+        <button class="iconbtn" id="prevBtn" type="button" aria-label="Vorige maand">‹</button>
+        <button class="iconbtn" id="nextBtn" type="button" aria-label="Volgende maand">›</button>
+      </div>
+    </div>
+    <div class="cal">
+      <div class="dow"><div>ma</div><div>di</div><div>wo</div><div>do</div><div>vr</div><div>za</div><div>zo</div></div>
+      <div class="grid" id="grid"></div>
+    </div>
+    <div class="dayhead"><div><h3 id="dayTitle">Vandaag</h3><span class="holpill" id="dayHol" hidden></span></div><span class="muted" id="dayCount"></span></div>
+    <div class="list" id="dayList"><div class="empty">De agenda wordt geladen…</div></div>
+  </section>
+
+  <section id="viewReq" class="req" hidden></section>
+</div>
+
+<button class="fab" id="fab" type="button" aria-label="Nieuwe afspraak" hidden>+</button>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<div class="scrim" id="addScrim" hidden>
+  <div class="sheet" role="dialog" aria-labelledby="addH">
+    <h2 id="addH">Nieuwe afspraak</h2>
+    <p class="hint" id="addHint"></p>
+    <form class="form" id="addForm" novalidate>
+      <div class="field"><label for="fTitle">Wat gaan we doen?</label><input id="fTitle" maxlength="80" placeholder="Etentje, bioscoop, weekendje weg…" required></div>
+      <div class="field"><label for="fDate">Datum</label><input id="fDate" type="date" required></div>
+      <label class="check"><input type="checkbox" id="fAllDay"> Hele dag</label>
+      <div class="row" id="timeRow">
+        <div class="field"><label for="fStart">Van</label><input id="fStart" type="time" value="19:00"></div>
+        <div class="field"><label for="fEnd">Tot</label><input id="fEnd" type="time" value="21:00"></div>
+      </div>
+      <div>
+        <span class="lbl">Voor wie</span>
+        <div class="seg" id="fWho">
+          <button type="button" class="o-samen" data-v="samen" aria-pressed="true">Samen</button>
+          <button type="button" class="o-karel" data-v="karel" aria-pressed="false">Karel</button>
+          <button type="button" class="o-sofie" data-v="sofie" aria-pressed="false">Sofie</button>
+        </div>
+      </div>
+      <div>
+        <span class="lbl">Plaatje</span>
+        <div class="emos" id="fEmo"></div>
+      </div>
+      <div class="field"><label for="fNote">Notitie (mag leeg)</label><textarea id="fNote" rows="2" maxlength="300" placeholder="Adres, wat meenemen, tafel om 19:30…"></textarea></div>
+      <p class="err" id="formErr" hidden></p>
+      <div class="sheetfoot">
+        <button type="button" class="btn nope" id="cancelAdd">Annuleren</button>
+        <button type="submit" class="btn primary" id="sendBtn">Voorstellen</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
