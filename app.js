@@ -6,6 +6,7 @@ const sb = createClient(SUPABASE_URL, SUPABASE_KEY, {
   auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
 });
 
+const IMPORT_ON = false;
 const EMOJI = ["💛", "🍝", "🎬", "🎉", "✈️", "🏠", "🏃", "🎂", "☕", "🛒", "👨‍👩‍👧", "🍷"];
 const OTHER = { Karel: "Sofie", Sofie: "Karel" };
 const WHO_LABEL = { samen: "Samen", karel: "Karel", sofie: "Sofie" };
@@ -126,8 +127,8 @@ async function startApp(session) {
   subscribe();
   refreshPushCard();
   await loadWij(true);
-  await loadImport();
-  syncImport(30 * 60 * 1000);
+  // "Overnemen" staat uit; zet IMPORT_ON op true om het tabblad terug te halen
+  if (IMPORT_ON) { $("tabImp").hidden = false; await loadImport(); syncImport(30 * 60 * 1000); }
 }
 let started = false;
 sb.auth.onAuthStateChange((evt, session) => {
