@@ -43,7 +43,7 @@
   <header>
     <div class="brand" aria-label="Karel en Sofie">
       <span class="k">Karel</span>
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="var(--samen)" d="M12 21s-7.5-4.6-9.6-9.2C1 8.6 3 5 6.6 5c2.1 0 3.6 1.2 5.4 3.1C13.8 6.2 15.3 5 17.4 5 21 5 23 8.6 21.6 11.8 19.5 16.4 12 21 12 21z"/></svg>
+      <svg viewBox="0 0 24 24" aria-hidden="true" id="brandHeart"><path fill="var(--samen)" d="M12 21s-7.5-4.6-9.6-9.2C1 8.6 3 5 6.6 5c2.1 0 3.6 1.2 5.4 3.1C13.8 6.2 15.3 5 17.4 5 21 5 23 8.6 21.6 11.8 19.5 16.4 12 21 12 21z"/></svg>
       <span class="s">Sofie</span>
     </div>
     <div class="mewrap">
@@ -61,6 +61,7 @@
     <button class="tab" id="tabCal" role="tab" aria-selected="true" type="button">Agenda</button>
     <button class="tab" id="tabReq" role="tab" aria-selected="false" type="button">Verzoeken <span class="badge" id="badge" hidden>0</span></button>
     <button class="tab" id="tabImp" role="tab" aria-selected="false" type="button">Overnemen <span class="badge imp" id="impBadge" hidden>0</span></button>
+    <button class="tab" id="tabWij" role="tab" aria-selected="false" type="button">Wij</button>
   </div>
 
   <div class="pushcard" id="pushCard" hidden>
@@ -71,6 +72,11 @@
   <div class="note" id="note" hidden></div>
 
   <section id="viewCal">
+    <button class="countdown" id="countdown" type="button" hidden>
+      <span class="cd-emo" id="cdEmo"></span>
+      <span class="cd-txt"><span class="cd-top" id="cdTop"></span><span class="cd-main" id="cdMain"></span></span>
+      <span class="cd-num" id="cdNum"></span>
+    </button>
     <div class="monthbar">
       <h2 id="monthTitle"></h2>
       <div class="nav">
@@ -88,6 +94,28 @@
   </section>
 
   <section id="viewReq" class="req" hidden></section>
+
+  <section id="viewWij" class="wij" hidden>
+    <div class="lovecard">
+      <button class="lovebtn" id="loveBtn" type="button" aria-label="Stuur een hartje">💛</button>
+      <div class="lovetxt"><b>Denk aan je</b><span id="loveSub">Tik op het hart en de ander krijgt een hartje.</span></div>
+    </div>
+
+    <div class="wijhead"><h4>Onze dagen</h4><button class="mini" id="addDayBtn" type="button">+ Toevoegen</button></div>
+    <p class="hint">Komen elk jaar terug in de agenda. Een week van tevoren en op de dag zelf krijgen jullie allebei een melding.</p>
+    <div class="list" id="sdList"></div>
+
+    <div class="wijhead"><h4>Date-potje</h4></div>
+    <p class="hint">Gooi er ideeën in. Weten jullie het even niet? Laat de app er eentje kiezen.</p>
+    <button class="btn surprise" id="surpriseBtn" type="button">🎲 Verras me</button>
+    <div id="surpriseOut"></div>
+    <form class="ideaform" id="ideaForm" novalidate>
+      <label class="sr" for="ideaTitle">Nieuw idee</label>
+      <input id="ideaTitle" maxlength="80" placeholder="Nieuw idee, bijv. samen sushi maken" autocomplete="off">
+      <button class="btn primary" type="submit">Erbij</button>
+    </form>
+    <div class="list" id="ideaList"></div>
+  </section>
 
   <section id="viewImp" class="req" hidden>
     <div class="impbox" id="impSetup" hidden>
@@ -121,6 +149,26 @@
 
 <button class="fab" id="fab" type="button" aria-label="Nieuwe afspraak" hidden>+</button>
 <div class="toasts" id="toasts" aria-live="polite"></div>
+<div class="hearts" id="hearts" aria-hidden="true"></div>
+
+<div class="scrim" id="sdScrim" hidden>
+  <div class="sheet" role="dialog" aria-labelledby="sdH">
+    <h2 id="sdH">Speciale dag</h2>
+    <p class="hint">Komt elk jaar terug in jullie agenda.</p>
+    <form class="form" id="sdForm" novalidate>
+      <div class="field"><label for="sdTitle">Naam</label><input id="sdTitle" maxlength="60" placeholder="Samen sinds, Verjaardag Sofie, Trouwdag…"></div>
+      <div class="field"><label for="sdDate">Datum (met het jaar waarin het begon)</label><input id="sdDate" type="date"></div>
+      <div><span class="lbl">Plaatje</span><div class="emos" id="sdEmo"></div></div>
+      <label class="check"><input type="checkbox" id="sdYears" checked> Laat zien hoeveel jaar het is</label>
+      <p class="err" id="sdErr" hidden></p>
+      <div class="sheetfoot">
+        <button type="button" class="btn nope" id="sdCancel">Annuleren</button>
+        <button type="submit" class="btn primary" id="sdSave">Opslaan</button>
+      </div>
+      <div class="sddel" id="sdDelWrap" hidden><button type="button" class="mini danger" id="sdDel">Deze dag verwijderen</button></div>
+    </form>
+  </div>
+</div>
 
 <div class="scrim" id="addScrim" hidden>
   <div class="sheet" role="dialog" aria-labelledby="addH">

@@ -24,6 +24,7 @@ let sel = ymd(now);
 let form = { who: "samen", emoji: EMOJI[0] };
 let confirmDel = null;
 let channel = null;
+let specialDays = [], ideas = [], wijLoaded = false, confirmIdea = null, lastSurprise = null;
 let impSource = null;     // { last_synced, last_error } or null
 let impItems = [];        // items with state 'new'
 let impLoaded = false, impBusy = false, confirmUnlink = false;
@@ -124,6 +125,7 @@ async function startApp(session) {
   await loadEvents();
   subscribe();
   refreshPushCard();
+  await loadWij(true);
   await loadImport();
   syncImport(30 * 60 * 1000);
 }
@@ -145,12 +147,17 @@ async function loadEvents() {
   events = data || []; loaded = true;
   render(); processNotices();
 }
-let reloadTimer = null;
+let reloadTimer = null, wijTimer = null;
 function subscribe() {
   if (channel) return;
   channel = sb.channel("events-live")
     .on("postgres_changes", { event: "*", schema: "public", table: "events" }, () => {
       clearTimeout(reloadTimer); reloadTimer = setTimeout(loadEvents, 250);
+    })
+    .on("postgres_changes", { event: "*", schema: "public", table: "special_days" }, () => { clearTimeout(wijTimer); wijTimer = setTimeout(loadWij, 250); })
+    .on("postgres_changes", { event: "*", schema: "public", table: "date_ideas" }, () => { clearTimeout(wijTimer); wijTimer = setTimeout(loadWij, 250); })
+    .on("postgres_changes", { event: "INSERT", schema: "public", table: "love_pings" }, (p) => {
+      if (p.new && p.new.from_member && p.new.from_member !== me) { ls.set("ks-love-seen-" + me, p.new.created_at); receiveLove(p.new.from_member, 1); }
     })
     .subscribe();
 }
@@ -177,12 +184,12 @@ $("mTest").onclick = async () => {
 let view = "cal";
 function setView(v) {
   view = v;
-  $("tabCal").setAttribute("aria-selected", v === "cal"); $("tabReq").setAttribute("aria-selected", v === "req"); $("tabImp").setAttribute("aria-selected", v === "imp");
-  $("viewCal").hidden = v !== "cal"; $("viewReq").hidden = v !== "req"; $("viewImp").hidden = v !== "imp";
+  for (const [t, name] of [["Cal", "cal"], ["Req", "req"], ["Imp", "imp"], ["Wij", "wij"]]) { $("tab" + t).setAttribute("aria-selected", v === name); $("view" + t).hidden = v !== name; }
+  if (me) $("fab").hidden = v === "wij";
   render();
   if (v === "imp") syncImport(2 * 60 * 1000);
 }
-$("tabCal").onclick = () => setView("cal"); $("tabReq").onclick = () => setView("req"); $("tabImp").onclick = () => setView("imp");
+$("tabCal").onclick = () => setView("cal"); $("tabReq").onclick = () => setView("req"); $("tabImp").onclick = () => setView("imp"); $("tabWij").onclick = () => setView("wij");
 $("todayBtn").onclick = () => { const t = new Date(); cur = new Date(t.getFullYear(), t.getMonth(), 1); sel = ymd(t); renderCal(); };
 if (location.hash === "#verzoeken") setView("req");
 
@@ -215,7 +222,7 @@ $("nextBtn").onclick = () => shiftMonth(1);
 /* ---------- rendering ---------- */
 const approved = () => events.filter((e) => e.status === "approved");
 const changeForMe = () => events.filter((e) => e.change && e.change_by !== me);
-function render() { if (!me) return; renderCal(); renderReq(); renderImp(); renderBadge(); }
+function render() { if (!me) return; renderCal(); renderReq(); renderImp(); renderWij(); renderBadge(); }
 function renderBadge() {
   const n = events.filter((e) => e.status === "pending" && e.created_by !== me).length + changeForMe().length;
   $("badge").hidden = !n; $("badge").textContent = n;
@@ -224,6 +231,7 @@ function renderBadge() {
   try { if (navigator.setAppBadge) n ? navigator.setAppBadge(n) : navigator.clearAppBadge(); } catch {}
 }
 function renderCal() {
+  renderCountdown();
   $("monthTitle").textContent = fMonth.format(cur);
   const byDay = {}; approved().forEach((e) => daysOf(e).forEach((k) => { (byDay[k] = byDay[k] || []).push(e); }));
   const g = $("grid"); g.textContent = "";
@@ -236,9 +244,11 @@ function renderCal() {
     if (k === today) c.classList.add("today"); if (k === sel) c.classList.add("sel");
     c.appendChild(el("span", "n", d.getDate()));
     const hol = holidays(d.getFullYear())[k];
-    if (hol) { const hs = el("span", "hol", hol.short); hs.title = hol.full; c.appendChild(hs); }
+    const sds = specialOn(k);
+    if (sds.length) { const hs = el("span", "hol sd", sds[0].emoji + " " + sds[0].title); c.appendChild(hs); c.classList.add("special"); }
+    else if (hol) { const hs = el("span", "hol", hol.short); hs.title = hol.full; c.appendChild(hs); }
     const list = (byDay[k] || []).slice().sort(sortEv);
-    c.setAttribute("aria-label", fDay.format(d) + (hol ? ", " + hol.full : "") + (list.length ? ", " + list.length + " afspraken" : ""));
+    c.setAttribute("aria-label", fDay.format(d) + sds.map((x) => ", " + sdLabel(x, k)).join("") + (hol ? ", " + hol.full : "") + (list.length ? ", " + list.length + " afspraken" : ""));
     if (list.length) { const dots = el("span", "dots"); list.slice(0, 4).forEach((e) => dots.appendChild(el("span", "dot d-" + (e.who || "samen")))); c.appendChild(dots); }
     c.onclick = () => { sel = k; if (d.getMonth() !== cur.getMonth()) cur = new Date(d.getFullYear(), d.getMonth(), 1); confirmDel = null; renderCal(); };
     g.appendChild(c);
@@ -263,7 +273,14 @@ function renderDay(list) {
   $("dayCount").textContent = list.length ? (list.length === 1 ? "1 afspraak" : list.length + " afspraken") : "";
   const L = $("dayList"); L.textContent = "";
   if (!loaded) { L.appendChild(el("div", "empty", "De agenda wordt geladen…")); return; }
-  if (!list.length) { L.appendChild(el("div", "empty", "Nog niks gepland. Tik op + om iets toe te voegen.")); return; }
+  specialOn(sel).forEach((x) => {
+    const c = el("button", "ev w-sd"); c.type = "button"; c.onclick = () => openDay(x);
+    c.appendChild(el("div", "emo", x.emoji));
+    const b = el("div", "body"); b.appendChild(el("div", "t", sdLabel(x, sel)));
+    b.appendChild(el("div", "meta", "Onze dag · elk jaar sinds " + x.date.slice(0, 4))); c.appendChild(b);
+    L.appendChild(c);
+  });
+  if (!list.length) { if (!specialOn(sel).length) L.appendChild(el("div", "empty", "Nog niks gepland. Tik op + om iets toe te voegen.")); return; }
   list.forEach((e) => {
     const c = card(e); const body = c.querySelector(".body");
     if (spans(e)) {
@@ -514,6 +531,7 @@ $("addForm").onsubmit = async (e) => {
       const { data, error } = await sb.from("events").insert({ ...fields, created_by: me, status: needs ? "pending" : "approved" }).select("id").single();
       if (error) return err("Opslaan lukte niet. Controleer je internet en probeer het opnieuw.");
       if (form.reofferId) await sb.from("events").delete().eq("id", form.reofferId);
+      if (form.ideaId) { await sb.from("date_ideas").update({ used_at: new Date().toISOString() }).eq("id", form.ideaId); loadWij(); }
       notify(data.id, "new");
       closeAdd();
       if (needs) toast("Verstuurd naar " + OTHER[me], "Het staat in de agenda zodra " + OTHER[me] + " ja zegt.");
@@ -523,6 +541,195 @@ $("addForm").onsubmit = async (e) => {
     await loadEvents();
   } finally { $("sendBtn").disabled = false; }
 };
+
+/* ---------- Wij: onze dagen, date-potje, hartjes, aftellen ---------- */
+const isLeap = (y) => (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+function occurrence(orig, year) { let [, m, d] = orig.split("-").map(Number); if (m === 2 && d === 29 && !isLeap(year)) d = 28; return year + "-" + String(m).padStart(2, "0") + "-" + String(d).padStart(2, "0"); }
+function nextOcc(sd, from) { const y = Number(from.slice(0, 4)); const o = occurrence(sd.date, y); return o >= from ? o : occurrence(sd.date, y + 1); }
+function specialOn(k) { const y = Number(k.slice(0, 4)); return specialDays.filter((x) => occurrence(x.date, y) === k && x.date <= k); }
+function sdLabel(x, occ) { const yrs = Number(occ.slice(0, 4)) - Number(x.date.slice(0, 4)); return x.show_years && yrs > 0 ? x.title + " · " + yrs + " jaar" : x.title; }
+const daysBetween = (a, b) => Math.round((parse(b) - parse(a)) / 86400000);
+
+async function loadWij(first) {
+  if (!me) return;
+  const [d, i] = await Promise.all([
+    sb.from("special_days").select("*").order("date"),
+    sb.from("date_ideas").select("*").order("created_at", { ascending: false }).limit(300),
+  ]);
+  if (!d.error) specialDays = d.data || [];
+  if (!i.error) ideas = i.data || [];
+  wijLoaded = true;
+  render();
+  if (first) {
+    // hartjes die binnenkwamen terwijl de app dicht was
+    const key = "ks-love-seen-" + me; const since = ls.get(key);
+    const { data: pings } = await sb.from("love_pings").select("created_at").eq("from_member", OTHER[me]).gt("created_at", since || new Date(Date.now() - 86400000).toISOString()).order("created_at");
+    if (pings && pings.length) { ls.set(key, pings[pings.length - 1].created_at); if (since) receiveLove(OTHER[me], pings.length); }
+    else if (!since) ls.set(key, new Date().toISOString());
+  }
+}
+
+function renderCountdown() {
+  const box = $("countdown"); if (!me) { box.hidden = true; return; }
+  const today = ymd(new Date()); const nowT = new Date().toTimeString().slice(0, 5);
+  const cands = [];
+  approved().filter((e) => e.who === "samen" && e.date >= today && !(e.date === today && !e.all_day && e.start_time && e.start_time < nowT))
+    .forEach((e) => cands.push({ date: e.date, emoji: e.emoji || "💛", title: e.title, time: e.all_day ? "" : e.start_time, go: () => goTo(e) }));
+  specialDays.forEach((x) => { const o = nextOcc(x, today); cands.push({ date: o, emoji: x.emoji, title: sdLabel(x, o), time: "", go: () => goTo({ date: o }) }); });
+  cands.sort((a, b) => a.date.localeCompare(b.date) || (a.time || "").localeCompare(b.time || ""));
+  const c = cands.find((x) => daysBetween(today, x.date) <= 60);
+  if (!c) { box.hidden = true; return; }
+  const n = daysBetween(today, c.date);
+  $("cdEmo").textContent = c.emoji;
+  $("cdTop").textContent = n === 0 ? "Vandaag" + (c.time ? " om " + c.time : "") : n === 1 ? "Morgen" + (c.time ? " om " + c.time : "") : "Nog " + n + " nachtjes tot";
+  $("cdMain").textContent = c.title;
+  $("cdNum").textContent = n >= 2 ? n : n === 1 ? "🌙" : "🎉";
+  box.onclick = c.go; box.hidden = false;
+}
+
+function renderWij() {
+  if (!me) return;
+  $("loveSub").textContent = "Tik op het hart en " + OTHER[me] + " krijgt een hartje op de telefoon.";
+  const today = ymd(new Date());
+  // onze dagen
+  const L = $("sdList"); L.textContent = "";
+  if (!wijLoaded) L.appendChild(el("div", "empty", "Laden…"));
+  else if (!specialDays.length) {
+    const e = el("div", "empty", "Nog geen speciale dagen. Begin met de dag dat jullie samen zijn, of jullie verjaardagen.");
+    L.appendChild(e);
+  } else {
+    specialDays.map((x) => ({ x, o: nextOcc(x, today) })).sort((a, b) => a.o.localeCompare(b.o)).forEach(({ x, o }) => {
+      const n = daysBetween(today, o);
+      const r = el("button", "ev w-sd"); r.type = "button"; r.onclick = () => openDay(x);
+      r.appendChild(el("div", "emo", x.emoji));
+      const b = el("div", "body"); b.appendChild(el("div", "t", sdLabel(x, o)));
+      b.appendChild(el("div", "meta", (n === 0 ? "Vandaag! 🎉" : n === 1 ? "Morgen" : "Over " + n + " dagen") + " · " + fDM.format(parse(o))));
+      r.appendChild(b); L.appendChild(r);
+    });
+  }
+  // date-potje
+  const I = $("ideaList"); I.textContent = "";
+  const open = ideas.filter((x) => !x.used_at), done = ideas.filter((x) => x.used_at);
+  $("surpriseBtn").disabled = !ideas.length;
+  if (wijLoaded && !ideas.length) I.appendChild(el("div", "empty", "Het potje is nog leeg. Wat zouden jullie graag eens samen doen?"));
+  [...open, ...done].forEach((x) => {
+    const r = el("div", "idea" + (x.used_at ? " done" : ""));
+    r.appendChild(el("span", "ie", x.emoji));
+    const t = el("span", "it"); t.appendChild(el("span", null, x.title)); t.appendChild(el("small", null, x.used_at ? "✓ gepland" : "van " + x.created_by)); r.appendChild(t);
+    const a = el("span", "ia");
+    if (confirmIdea === x.id) {
+      const y = el("button", "mini danger", "Weg"); y.type = "button"; y.onclick = () => deleteIdea(x.id);
+      const n = el("button", "mini", "Nee"); n.type = "button"; n.onclick = () => { confirmIdea = null; renderWij(); };
+      a.append(y, n);
+    } else {
+      const p = el("button", "mini", "Plannen"); p.type = "button"; p.onclick = () => planIdea(x);
+      const d = el("button", "mini", "×"); d.type = "button"; d.setAttribute("aria-label", "Idee verwijderen"); d.onclick = () => { confirmIdea = x.id; renderWij(); };
+      a.append(p, d);
+    }
+    r.appendChild(a); I.appendChild(r);
+  });
+}
+
+/* onze dagen: toevoegen / aanpassen */
+const SD_EMOJI = ["💛", "💍", "🎂", "🥂", "🌹", "⭐", "🏠", "🐶"];
+let sdForm = { id: null, emoji: SD_EMOJI[0], confirmDel: false };
+SD_EMOJI.forEach((x) => { const b = el("button", null, x); b.type = "button"; b.setAttribute("aria-label", "Plaatje " + x); b.onclick = () => { sdForm.emoji = x; syncSd(); }; $("sdEmo").appendChild(b); });
+function syncSd() {
+  $("sdEmo").querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", b.textContent === sdForm.emoji));
+  $("sdDelWrap").hidden = !sdForm.id;
+  $("sdDel").textContent = sdForm.confirmDel ? "Zeker weten? Tik nog een keer" : "Deze dag verwijderen";
+}
+function openDay(x) {
+  sdForm = { id: x ? x.id : null, emoji: x ? x.emoji : SD_EMOJI[0], confirmDel: false };
+  $("sdH").textContent = x ? "Speciale dag aanpassen" : "Nieuwe speciale dag";
+  $("sdTitle").value = x ? x.title : ""; $("sdDate").value = x ? x.date : ""; $("sdYears").checked = x ? x.show_years : true;
+  $("sdErr").hidden = true; syncSd(); $("sdScrim").hidden = false;
+}
+$("addDayBtn").onclick = () => openDay(null);
+$("sdCancel").onclick = () => { $("sdScrim").hidden = true; };
+$("sdScrim").onclick = (e) => { if (e.target === $("sdScrim")) $("sdScrim").hidden = true; };
+$("sdDel").onclick = async () => {
+  if (!sdForm.confirmDel) { sdForm.confirmDel = true; syncSd(); return; }
+  const { error } = await sb.from("special_days").delete().eq("id", sdForm.id);
+  if (error) return toast("Verwijderen lukte niet", "Controleer je internet.");
+  $("sdScrim").hidden = true; loadWij();
+};
+$("sdForm").onsubmit = async (e) => {
+  e.preventDefault();
+  const title = $("sdTitle").value.trim(), date = $("sdDate").value;
+  const err = (m) => { $("sdErr").textContent = m; $("sdErr").hidden = false; };
+  if (!title) return err("Geef de dag een naam.");
+  if (!date) return err("Kies de datum.");
+  const row = { title, date, emoji: sdForm.emoji, show_years: $("sdYears").checked };
+  const q = sdForm.id ? sb.from("special_days").update(row).eq("id", sdForm.id) : sb.from("special_days").insert({ ...row, created_by: me });
+  $("sdSave").disabled = true;
+  const { error } = await q; $("sdSave").disabled = false;
+  if (error) return err("Opslaan lukte niet. Controleer je internet.");
+  $("sdScrim").hidden = true; toast(sdForm.id ? "Aangepast" : "Toegevoegd " + sdForm.emoji, "Staat elk jaar in de agenda."); loadWij();
+};
+
+/* date-potje */
+function ideaEmoji(t) {
+  const m = [[/sushi/i, "🍣"], [/pizza/i, "🍕"], [/(eten|diner|restaurant|kook|lunch|ontbijt|brunch)/i, "🍝"], [/(film|bios)/i, "🎬"], [/(wandel|hike|bos)/i, "🥾"],
+    [/(strand|zee)/i, "🏖️"], [/fiets/i, "🚲"], [/(spel|game)/i, "🎲"], [/picknick/i, "🧺"], [/(koffie|cafe|café)/i, "☕"], [/(museum|expo)/i, "🖼️"],
+    [/(concert|festival|muziek)/i, "🎵"], [/(zwem|sauna|spa)/i, "🧖"], [/(dans)/i, "💃"], [/(weekend|reis|trip|hotel)/i, "✈️"], [/(zon|sterren)/i, "🌅"], [/(klim|boulder)/i, "🧗"]];
+  for (const [re, e] of m) if (re.test(t)) return e;
+  return "💡";
+}
+$("ideaForm").onsubmit = async (e) => {
+  e.preventDefault();
+  const title = $("ideaTitle").value.trim(); if (!title) return;
+  const { error } = await sb.from("date_ideas").insert({ title, emoji: ideaEmoji(title), created_by: me });
+  if (error) return toast("Toevoegen lukte niet", "Controleer je internet.");
+  $("ideaTitle").value = ""; loadWij();
+};
+async function deleteIdea(id) { confirmIdea = null; ideas = ideas.filter((x) => x.id !== id); renderWij(); await sb.from("date_ideas").delete().eq("id", id); }
+function nextSaturday() { const d = new Date(); d.setDate(d.getDate() + ((6 - d.getDay() + 7) % 7 || 7)); return ymd(d); }
+function planIdea(x) {
+  openAdd({ title: x.title, emoji: x.emoji, who: "samen", date: nextSaturday(), all_day: false, start_time: "19:00", end_time: "", note: "" });
+  form.ideaId = x.id;
+}
+$("surpriseBtn").onclick = () => {
+  const pool = ideas.filter((x) => !x.used_at); const from = pool.length ? pool : ideas; if (!from.length) return;
+  let pick = from[Math.floor(Math.random() * from.length)];
+  if (from.length > 1 && lastSurprise && pick.id === lastSurprise) pick = from.find((x) => x.id !== lastSurprise);
+  lastSurprise = pick.id;
+  const O = $("surpriseOut"); O.textContent = "";
+  const c = el("div", "surprisecard");
+  c.appendChild(el("div", "se", pick.emoji));
+  const t = el("div", "st"); t.appendChild(el("small", null, "Wat dachten jullie van…")); t.appendChild(el("b", null, pick.title)); c.appendChild(t);
+  const a = el("div", "actions");
+  const p = el("button", "btn as-samen", "Plannen"); p.type = "button"; p.onclick = () => { O.textContent = ""; planIdea(pick); };
+  const n = el("button", "btn nope", "Nog een keer"); n.type = "button"; n.onclick = () => $("surpriseBtn").onclick();
+  a.append(p, n); c.appendChild(a); O.appendChild(c);
+};
+
+/* denk aan je */
+let loveCooldown = 0;
+function burst(n) {
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const H = $("hearts"); const set = ["💛", "💖", "💗", "🧡", "💕"];
+  for (let i = 0; i < (n || 14); i++) {
+    const h = el("span", "fh", set[i % set.length]);
+    h.style.left = 8 + Math.random() * 84 + "%"; h.style.animationDelay = Math.random() * 0.6 + "s"; h.style.fontSize = 18 + Math.random() * 22 + "px";
+    H.appendChild(h); setTimeout(() => h.remove(), 3200);
+  }
+}
+async function sendLove() {
+  if (Date.now() < loveCooldown) return toast("Hartje is al onderweg 💛", "Over een paar tellen kun je er weer een sturen.");
+  loveCooldown = Date.now() + 8000;
+  burst(10);
+  const { error } = await sb.from("love_pings").insert({ from_member: me });
+  if (error) return toast("Hartje versturen lukte niet", "Controleer je internet.");
+  notify(null, "love");
+  toast("Hartje verstuurd naar " + OTHER[me] + " 💛", "");
+}
+function receiveLove(from, count) {
+  burst(18);
+  toast(count > 1 ? from + " dacht " + count + "× aan je 💛" : from + " denkt aan je 💛", count > 1 ? "Terwijl de app dicht was." : "", [["primary", "Hartje terug", () => sendLove()]], 8000);
+}
+$("loveBtn").onclick = sendLove;
+$("brandHeart").addEventListener("click", () => { if (me) sendLove(); });
 
 /* ---------- overnemen uit een andere agenda ---------- */
 const fTime = new Intl.DateTimeFormat("nl-NL", { hour: "2-digit", minute: "2-digit" });
