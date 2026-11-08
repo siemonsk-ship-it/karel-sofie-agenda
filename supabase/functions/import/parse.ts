@@ -2,8 +2,13 @@
 // Shared by the `import` edge function; ICAL (ical.js) is passed in so this file has no imports.
 
 export type Item = {
-  key: string; title: string; date: string; all_day: boolean;
+  key: string; title: string; date: string; end_date: string | null; all_day: boolean;
   start_time: string; end_time: string; note: string;
+};
+
+const addDays = (ymd: string, n: number) => {
+  const d = new Date(ymd + "T12:00:00Z"); d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
 };
 
 const TZ = "Europe/Amsterdam";
@@ -55,10 +60,20 @@ export function parseIcs(ICAL: any, text: string, from: Date, to: Date, limit = 
     const key = (uid + "|" + s.date + (s.allDay ? "" : "|" + s.time)).slice(0, 400);
     if (seen.has(key)) return;
     seen.add(key);
+    // last day the event touches (an all-day DTEND, or a timed end at 00:00, is exclusive)
+    let last = s.date, endTime = "";
+    if (e) {
+      const exclusive = s.allDay || e.time === "00:00";
+      last = exclusive && e.date > s.date ? addDays(e.date, -1) : e.date;
+      if (last < s.date) last = s.date;
+      endTime = s.allDay || e.time === "00:00" ? "" : e.time;
+    }
+    if (last > addDays(s.date, 62)) last = addDays(s.date, 62);
     out.push({
       key, title: title || "Afspraak", date: s.date, all_day: s.allDay,
+      end_date: last > s.date ? last : null,
       start_time: s.allDay ? "" : s.time,
-      end_time: s.allDay || !e || e.date !== s.date ? "" : e.time,
+      end_time: endTime,
       note,
     });
   };

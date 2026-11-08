@@ -128,11 +128,14 @@
     <p class="hint" id="addHint"></p>
     <form class="form" id="addForm" novalidate>
       <div class="field"><label for="fTitle">Wat gaan we doen?</label><input id="fTitle" maxlength="80" placeholder="Etentje, bioscoop, weekendje weg…" required></div>
-      <div class="field"><label for="fDate">Datum</label><input id="fDate" type="date" required></div>
+      <div class="row">
+        <div class="field"><label for="fDate">Datum</label><input id="fDate" type="date" required></div>
+        <div class="field"><label for="fEndDate">Tot en met</label><input id="fEndDate" type="date"></div>
+      </div>
       <label class="check"><input type="checkbox" id="fAllDay"> Hele dag</label>
       <div class="row" id="timeRow">
-        <div class="field"><label for="fStart">Van</label><input id="fStart" type="time" value="19:00"></div>
-        <div class="field"><label for="fEnd">Tot</label><input id="fEnd" type="time" value="21:00"></div>
+        <div class="field"><label for="fStart" id="lStart">Van</label><input id="fStart" type="time" value="19:00"></div>
+        <div class="field"><label for="fEnd" id="lEnd">Tot</label><input id="fEnd" type="time" value="21:00"></div>
       </div>
       <div>
         <span class="lbl">Voor wie</span>

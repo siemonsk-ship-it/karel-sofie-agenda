@@ -35,7 +35,16 @@ const fMonth = new Intl.DateTimeFormat("nl-NL", { month: "long", year: "numeric"
 const fDay = new Intl.DateTimeFormat("nl-NL", { weekday: "long", day: "numeric", month: "long" });
 const fShort = new Intl.DateTimeFormat("nl-NL", { weekday: "short", day: "numeric", month: "short" });
 function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
-function timeText(ev) { return ev.all_day ? "Hele dag" : (ev.start_time || "") + (ev.end_time ? " – " + ev.end_time : ""); }
+const fDM = new Intl.DateTimeFormat("nl-NL", { day: "numeric", month: "short" });
+function addDays(k, n) { const d = parse(k); d.setDate(d.getDate() + n); return ymd(d); }
+function spans(ev) { return !!ev.end_date && ev.end_date > ev.date; }
+function daysOf(ev) { const out = [ev.date]; if (!spans(ev)) return out; let k = ev.date; while (k < ev.end_date && out.length < 64) { k = addDays(k, 1); out.push(k); } return out; }
+function timeText(ev) {
+  if (!spans(ev)) return ev.all_day ? "Hele dag" : (ev.start_time || "") + (ev.end_time ? " – " + ev.end_time : "");
+  const a = fDM.format(parse(ev.date)), b = fDM.format(parse(ev.end_date));
+  return ev.all_day ? a + " t/m " + b : a + " " + ev.start_time + " – " + b + (ev.end_time ? " " + ev.end_time : "");
+}
+function whenText(ev) { return spans(ev) ? timeText(ev) : fShort.format(parse(ev.date)) + " · " + timeText(ev); }
 function sortEv(a, b) { return (a.date + (a.all_day ? "00" : a.start_time || "")).localeCompare(b.date + (b.all_day ? "00" : b.start_time || "")); }
 function showNote(t) { $("note").textContent = t || ""; $("note").hidden = !t; }
 
@@ -205,9 +214,10 @@ $("nextBtn").onclick = () => shiftMonth(1);
 
 /* ---------- rendering ---------- */
 const approved = () => events.filter((e) => e.status === "approved");
+const changeForMe = () => events.filter((e) => e.change && e.change_by !== me);
 function render() { if (!me) return; renderCal(); renderReq(); renderImp(); renderBadge(); }
 function renderBadge() {
-  const n = events.filter((e) => e.status === "pending" && e.created_by !== me).length;
+  const n = events.filter((e) => e.status === "pending" && e.created_by !== me).length + changeForMe().length;
   $("badge").hidden = !n; $("badge").textContent = n;
   const ni = impItems.length; $("impBadge").hidden = !ni; $("impBadge").textContent = ni > 99 ? "99+" : ni;
   document.title = (n ? "(" + n + ") " : "") + "Karel & Sofie";
@@ -215,7 +225,7 @@ function renderBadge() {
 }
 function renderCal() {
   $("monthTitle").textContent = fMonth.format(cur);
-  const byDay = {}; approved().forEach((e) => { (byDay[e.date] = byDay[e.date] || []).push(e); });
+  const byDay = {}; approved().forEach((e) => daysOf(e).forEach((k) => { (byDay[k] = byDay[k] || []).push(e); }));
   const g = $("grid"); g.textContent = "";
   const off = (cur.getDay() + 6) % 7; const start = new Date(cur.getFullYear(), cur.getMonth(), 1 - off);
   const today = ymd(new Date());
@@ -227,7 +237,7 @@ function renderCal() {
     c.appendChild(el("span", "n", d.getDate()));
     const hol = holidays(d.getFullYear())[k];
     if (hol) { const hs = el("span", "hol", hol.short); hs.title = hol.full; c.appendChild(hs); }
-    const list = (byDay[k] || []).sort(sortEv);
+    const list = (byDay[k] || []).slice().sort(sortEv);
     c.setAttribute("aria-label", fDay.format(d) + (hol ? ", " + hol.full : "") + (list.length ? ", " + list.length + " afspraken" : ""));
     if (list.length) { const dots = el("span", "dots"); list.slice(0, 4).forEach((e) => dots.appendChild(el("span", "dot d-" + (e.who || "samen")))); c.appendChild(dots); }
     c.onclick = () => { sel = k; if (d.getMonth() !== cur.getMonth()) cur = new Date(d.getFullYear(), d.getMonth(), 1); confirmDel = null; renderCal(); };
@@ -244,22 +254,36 @@ function card(e) {
   if (e.note) b.appendChild(el("div", "txt", e.note));
   c.appendChild(b); return c;
 }
+const canEdit = (e) => e.status !== "declined" && !e.change && (e.created_by === me || (e.who === "samen" && e.status === "approved"));
 function renderDay(list) {
   const d = parse(sel); const t = ymd(new Date());
   $("dayTitle").textContent = sel === t ? "Vandaag, " + fDay.format(d).replace(/^\S+ /, "") : fDay.format(d);
   const hol = holidays(d.getFullYear())[sel]; $("dayHol").hidden = !hol; $("dayHol").textContent = hol ? hol.full : "";
-  list = list.slice().sort(sortEv);
+  list = list.slice().sort((a, b) => (spans(b) - spans(a)) || sortEv(a, b));
   $("dayCount").textContent = list.length ? (list.length === 1 ? "1 afspraak" : list.length + " afspraken") : "";
   const L = $("dayList"); L.textContent = "";
   if (!loaded) { L.appendChild(el("div", "empty", "De agenda wordt geladen…")); return; }
   if (!list.length) { L.appendChild(el("div", "empty", "Nog niks gepland. Tik op + om iets toe te voegen.")); return; }
   list.forEach((e) => {
-    const c = card(e); const box = el("div");
+    const c = card(e); const body = c.querySelector(".body");
+    if (spans(e)) {
+      const all = daysOf(e); const idx = all.indexOf(sel) + 1;
+      body.querySelector(".meta").insertBefore(document.createTextNode("Dag " + idx + " van " + all.length + " · "), body.querySelector(".meta").firstChild);
+    }
+    if (e.change) {
+      const p = el("div", "pendingchg", e.change_by === me ? "✏️ Je wijziging wacht op " + OTHER[me] : "✏️ " + e.change_by + " wil dit aanpassen");
+      if (e.change_by !== me) { p.classList.add("tap"); p.onclick = () => setView("req"); }
+      body.appendChild(p);
+    }
+    const box = el("div", "evbtns");
     if (confirmDel === e.id) {
       const y = el("button", "mini danger", "Ja, weg"); y.type = "button"; y.onclick = () => remove(e.id);
       const n = el("button", "mini", "Nee"); n.type = "button"; n.onclick = () => { confirmDel = null; renderCal(); };
       box.append(y, n);
-    } else { const x = el("button", "mini", "Verwijder"); x.type = "button"; x.onclick = () => { confirmDel = e.id; renderCal(); }; box.appendChild(x); }
+    } else {
+      if (canEdit(e)) { const ed = el("button", "mini", "Aanpassen"); ed.type = "button"; ed.onclick = () => openEdit(e); box.appendChild(ed); }
+      const x = el("button", "mini", "Verwijder"); x.type = "button"; x.onclick = () => { confirmDel = e.id; renderCal(); }; box.appendChild(x);
+    }
     c.appendChild(box); L.appendChild(c);
   });
 }
@@ -267,24 +291,36 @@ function renderReq() {
   const V = $("viewReq"); V.textContent = "";
   const other = OTHER[me];
   const forMe = events.filter((e) => e.status === "pending" && e.created_by !== me).sort(sortEv);
+  const chgForMe = changeForMe().sort(sortEv);
   const mine = events.filter((e) => e.status === "pending" && e.created_by === me).sort(sortEv);
+  const chgMine = events.filter((e) => e.change && e.change_by === me).sort(sortEv);
   const decl = events.filter((e) => e.status === "declined" && e.created_by === me).sort(sortEv);
   const btn = (cls, txt, fn) => { const b = el("button", "btn " + cls, txt); b.type = "button"; b.onclick = fn; return b; };
-  function section(title, list, emptyText, actions) {
+  const item = (L, e, actions, label) => {
+    const shown = e.change ? { ...e, ...e.change } : e;
+    const c = card(shown); const body = c.querySelector(".body");
+    body.querySelector(".meta").firstChild.textContent = whenText(shown);
+    if (label) body.insertBefore(el("div", "reqlabel", label), body.firstChild);
+    if (e.change) body.appendChild(el("div", "was", "Was: " + e.title + " · " + whenText(e) + (e.who !== shown.who ? " · " + WHO_LABEL[e.who] : "")));
+    const a = el("div", "actions"); actions(e).forEach((x) => a.appendChild(x)); body.appendChild(a);
+    L.appendChild(c);
+  };
+  const section = (title, rows, emptyText) => {
     V.appendChild(el("h4", null, title));
     const L = el("div", "list");
-    if (!list.length) L.appendChild(el("div", "empty", emptyText));
-    list.forEach((e) => {
-      const c = card(e); const body = c.querySelector(".body");
-      const meta = body.querySelector(".meta"); meta.insertBefore(document.createTextNode(fShort.format(parse(e.date)) + " · "), meta.firstChild);
-      const a = el("div", "actions"); actions(e).forEach((x) => a.appendChild(x)); body.appendChild(a);
-      L.appendChild(c);
-    });
+    if (!rows.length && emptyText) L.appendChild(el("div", "empty", emptyText));
+    rows.forEach(([e, actions, label]) => item(L, e, actions, label));
     V.appendChild(L);
-  }
-  section("Wacht op jou", forMe, "Niks te keuren. Lekker rustig.", (e) => [btn("yes", "Goedkeuren", () => decide(e.id, "approved")), btn("nope", "Afwijzen", () => decide(e.id, "declined"))]);
-  section("Wacht op " + other, mine, "Je hebt niks openstaan.", (e) => [btn("nope", "Intrekken", () => remove(e.id))]);
-  if (decl.length) section("Afgewezen door " + other, decl, "", (e) => [btn("primary", "Opnieuw voorstellen", () => openAdd(e)), btn("nope", "Weghalen", () => remove(e.id))]);
+  };
+  section("Wacht op jou", [
+    ...forMe.map((e) => [e, (x) => [btn("yes", "Goedkeuren", () => decide(x.id, "approved")), btn("nope", "Afwijzen", () => decide(x.id, "declined"))], "Nieuw voorstel"]),
+    ...chgForMe.map((e) => [e, (x) => [btn("yes", "Goedkeuren", () => resolveChange(x.id, true)), btn("nope", "Afwijzen", () => resolveChange(x.id, false))], "Wijziging"]),
+  ], "Niks te keuren. Lekker rustig.");
+  section("Wacht op " + other, [
+    ...mine.map((e) => [e, (x) => [btn("primary", "Aanpassen", () => openEdit(x)), btn("nope", "Intrekken", () => remove(x.id))], "Nieuw voorstel"]),
+    ...chgMine.map((e) => [e, (x) => [btn("nope", "Wijziging intrekken", () => resolveChange(x.id, false))], "Wijziging"]),
+  ], "Je hebt niks openstaan.");
+  if (decl.length) section("Afgewezen door " + other, decl.map((e) => [e, (x) => [btn("primary", "Opnieuw voorstellen", () => openAdd(x)), btn("nope", "Weghalen", () => remove(x.id))]]), "");
 }
 
 /* ---------- in-app popups ---------- */
@@ -296,33 +332,48 @@ function toast(title, sub, actions, ms) {
   setTimeout(() => t.remove(), ms || (actions ? 12000 : 4500));
 }
 function goTo(e) { sel = e.date; const d = parse(e.date); cur = new Date(d.getFullYear(), d.getMonth(), 1); setView("cal"); }
+const seenVal = (e) => e.status + (e.change ? "|c:" + e.change_by : "");
 function processNotices() {
   if (!me || !loaded) return;
   const key = "ks-seen-" + me; const raw = ls.get(key); let seen = {}; try { seen = JSON.parse(raw || "{}"); } catch {}
-  const newReq = [], decided = [], added = [];
+  const other = OTHER[me];
+  const newReq = [], decided = [], added = [], chgReq = [], chgDone = [];
   events.forEach((e) => {
-    const prev = seen[e.id];
+    const prev = seen[e.id]; const base = prev === undefined ? undefined : prev.split("|")[0];
     if (prev === undefined && e.status === "pending" && e.created_by !== me) newReq.push(e);
     if (prev === undefined && raw && e.status === "approved" && e.created_by !== me && !e.decided_by) added.push(e);
-    if (prev === "pending" && e.created_by === me && (e.status === "approved" || e.status === "declined")) decided.push(e);
+    if (base === "pending" && e.created_by === me && (e.status === "approved" || e.status === "declined")) decided.push(e);
+    if (raw && e.change && e.change_by !== me && !(prev || "").includes("|c:")) chgReq.push(e);
+    if (prev && prev.includes("|c:" + me) && !e.change) chgDone.push(e);
   });
-  const next = {}; events.forEach((e) => (next[e.id] = e.status)); ls.set(key, JSON.stringify(next));
-  const other = OTHER[me];
-  const line = (e) => (e.emoji || "") + " " + e.title + " · " + fShort.format(parse(e.date)) + " · " + timeText(e);
+  const next = {}; events.forEach((e) => (next[e.id] = seenVal(e))); ls.set(key, JSON.stringify(next));
+  const line = (e) => (e.emoji || "") + " " + e.title + " · " + whenText(e);
   if (newReq.length > 2) toast(other + " heeft " + newReq.length + " nieuwe voorstellen", "Bekijk ze en keur goed of af.", [["primary", "Bekijken", () => setView("req")]]);
   else newReq.forEach((e) => toast(other + " wil iets in de agenda zetten", line(e), [["yes", "Goedkeuren", () => decide(e.id, "approved")], ["nope", "Afwijzen", () => decide(e.id, "declined")]]));
   if (added.length > 2) toast(other + " heeft " + added.length + " dingen toegevoegd", "Kijk in de agenda.");
   else added.forEach((e) => toast(other + " heeft iets toegevoegd", line(e) + " · voor " + WHO_LABEL[e.who], [["primary", "Bekijken", () => goTo(e)]]));
-  decided.forEach((e) => toast(e.status === "approved" ? other + " zegt ja! 🎉" : other + " heeft afgewezen", e.title + " · " + fShort.format(parse(e.date)), null, 6000));
+  decided.forEach((e) => toast(e.status === "approved" ? other + " zegt ja! 🎉" : other + " heeft afgewezen", e.title + " · " + whenText(e), null, 6000));
+  chgReq.forEach((e) => toast(other + " wil iets aanpassen", line({ ...e, ...e.change }), [["yes", "Goedkeuren", () => resolveChange(e.id, true)], ["nope", "Bekijken", () => setView("req")]]));
+  chgDone.forEach((e) => {
+    const ok = e.decided_by === other && e.decided_at && Date.now() - Date.parse(e.decided_at) < 15 * 60 * 1000;
+    toast(ok ? other + " is akkoord met je wijziging 🎉" : other + " heeft je wijziging niet overgenomen", e.title + " · " + whenText(e), null, 6000);
+  });
 }
 
 /* ---------- writes ---------- */
-function notify(event_id, kind) { sb.functions.invoke("notify", { body: { event_id, kind } }).catch(() => {}); }
+function notify(event_id, kind, extra) { sb.functions.invoke("notify", { body: { event_id, kind, ...(extra || {}) } }).catch(() => {}); }
 async function decide(id, status) {
   const { error } = await sb.from("events").update({ status }).eq("id", id);
   if (error) return toast("Dat lukte niet", /beslist/.test(error.message) ? "Dit verzoek is al beslist." : "Controleer je internet en probeer het opnieuw.");
   notify(id, "decided");
   toast(status === "approved" ? "Staat in de agenda" : "Afgewezen", OTHER[me] + " krijgt een seintje.");
+  loadEvents();
+}
+async function resolveChange(id, accept) {
+  const { data, error } = await sb.rpc("resolve_change", { p_id: id, p_accept: accept });
+  if (error) return toast("Dat lukte niet", error.message || "Controleer je internet en probeer het opnieuw.");
+  if (data === "accepted" || data === "declined") notify(id, "change_resolved", { result: data });
+  toast(data === "accepted" ? "Wijziging staat erin" : data === "withdrawn" ? "Wijziging ingetrokken" : "Wijziging afgewezen", data === "withdrawn" ? "" : OTHER[me] + " krijgt een seintje.");
   loadEvents();
 }
 async function remove(id) {
@@ -332,25 +383,50 @@ async function remove(id) {
   loadEvents();
 }
 
-/* ---------- add sheet ---------- */
+/* ---------- add / edit sheet ---------- */
 const emoBox = $("fEmo");
 EMOJI.forEach((x) => { const b = el("button", null, x); b.type = "button"; b.setAttribute("aria-pressed", "false"); b.setAttribute("aria-label", "Plaatje " + x); b.onclick = () => { form.emoji = x; syncForm(); }; emoBox.appendChild(b); });
 $("fWho").querySelectorAll("button").forEach((b) => (b.onclick = () => { form.who = b.dataset.v; syncForm(); }));
 $("fAllDay").onchange = syncForm;
+$("fDate").onchange = () => { if (!$("fEndDate").value || $("fEndDate").value < $("fDate").value) $("fEndDate").value = $("fDate").value; syncForm(); };
+$("fEndDate").onchange = syncForm;
+const editNeedsApproval = () => form.editEv && form.editEv.status === "approved" && (form.editEv.who === "samen" || form.who === "samen");
 function syncForm() {
   $("fWho").querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.v === form.who));
   emoBox.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", b.textContent === form.emoji));
   $("timeRow").hidden = $("fAllDay").checked;
+  const multi = $("fEndDate").value && $("fEndDate").value > $("fDate").value;
+  $("lStart").textContent = multi ? "Begint om (eerste dag)" : "Van";
+  $("lEnd").textContent = multi ? "Eindigt om (laatste dag)" : "Tot";
+  if (form.editEv) {
+    $("addH").textContent = "Afspraak aanpassen";
+    const needs = editNeedsApproval();
+    $("addHint").textContent = needs ? "Dit is iets voor jullie samen. De wijziging gaat eerst naar " + OTHER[me] + ". Tot dan blijft het zoals het was." : "";
+    $("addHint").hidden = !needs;
+    $("sendBtn").textContent = needs ? "Wijziging voorstellen" : "Opslaan";
+    return;
+  }
+  $("addH").textContent = "Nieuwe afspraak"; $("addHint").hidden = false;
   const needs = form.who === "samen";
   $("addHint").textContent = needs ? "Iets voor jullie samen: komt in de agenda zodra " + OTHER[me] + " hem goedkeurt." : "Alleen voor " + WHO_LABEL[form.who] + ": komt meteen in de agenda.";
   $("sendBtn").textContent = needs ? "Voorstellen" : "Toevoegen";
 }
-function openAdd(from) {
+function fillForm(from) {
   $("addForm").reset(); $("formErr").hidden = true;
   $("fDate").value = from ? from.date : sel;
-  form = { who: from ? from.who : "samen", emoji: from ? from.emoji : EMOJI[0], reofferId: from ? from.id : null };
+  $("fEndDate").value = from && from.end_date ? from.end_date : $("fDate").value;
   if (from) { $("fTitle").value = from.title; $("fNote").value = from.note || ""; $("fAllDay").checked = !!from.all_day; if (from.start_time) $("fStart").value = from.start_time; if (from.end_time) $("fEnd").value = from.end_time; }
+}
+function openAdd(from) {
+  fillForm(from);
+  form = { who: from ? from.who : "samen", emoji: from ? from.emoji : EMOJI[0], reofferId: from ? from.id : null, editEv: null };
   syncForm(); $("addScrim").hidden = false; setTimeout(() => { try { $("fTitle").focus(); } catch {} }, 60);
+}
+function openEdit(e) {
+  confirmDel = null;
+  fillForm(e);
+  form = { who: e.who, emoji: e.emoji || EMOJI[0], reofferId: null, editEv: e };
+  syncForm(); $("addScrim").hidden = false;
 }
 const closeAdd = () => { $("addScrim").hidden = true; };
 $("fab").onclick = () => openAdd();
@@ -359,24 +435,35 @@ $("addScrim").onclick = (e) => { if (e.target === $("addScrim")) closeAdd(); };
 $("addForm").onsubmit = async (e) => {
   e.preventDefault();
   const title = $("fTitle").value.trim(), date = $("fDate").value, allDay = $("fAllDay").checked, start = $("fStart").value, end = $("fEnd").value;
+  const endDateRaw = $("fEndDate").value;
   const err = (m) => { $("formErr").textContent = m; $("formErr").hidden = false; };
   if (!title) return err("Geef de afspraak een naam.");
   if (!date) return err("Kies een datum.");
+  if (endDateRaw && endDateRaw < date) return err("De einddatum ligt voor de begindatum.");
+  const endDate = endDateRaw && endDateRaw > date ? endDateRaw : null;
+  if (endDate && endDate > addDays(date, 62)) return err("Een afspraak mag hooguit 2 maanden duren.");
   if (!allDay && !start) return err("Vul een begintijd in, of kies Hele dag.");
-  if (!allDay && end && end < start) return err("De eindtijd ligt voor de begintijd.");
-  const needs = form.who === "samen";
+  if (!allDay && !endDate && end && end < start) return err("De eindtijd ligt voor de begintijd.");
+  const fields = { title, date, end_date: endDate, all_day: allDay, start_time: allDay ? "" : start, end_time: allDay ? "" : end || "", who: form.who, emoji: form.emoji, note: $("fNote").value.trim() };
   $("sendBtn").disabled = true;
   try {
-    const { data, error } = await sb.from("events").insert({
-      title, date, all_day: allDay, start_time: allDay ? "" : start, end_time: allDay ? "" : end || "",
-      who: form.who, emoji: form.emoji, note: $("fNote").value.trim(), created_by: me, status: needs ? "pending" : "approved",
-    }).select("id").single();
-    if (error) return err("Opslaan lukte niet. Controleer je internet en probeer het opnieuw.");
-    if (form.reofferId) await sb.from("events").delete().eq("id", form.reofferId);
-    notify(data.id, "new");
-    closeAdd();
-    if (needs) toast("Verstuurd naar " + OTHER[me], "Het staat in de agenda zodra " + OTHER[me] + " ja zegt.");
-    else toast("Staat in de agenda", OTHER[me] + " krijgt een seintje.");
+    if (form.editEv) {
+      const id = form.editEv.id;
+      const { data, error } = await sb.rpc("edit_event", { p_id: id, p_fields: fields });
+      if (error) return err(error.message || "Opslaan lukte niet. Controleer je internet.");
+      notify(id, data === "requested" ? "change_request" : "changed");
+      closeAdd();
+      toast(data === "requested" ? "Wijziging verstuurd naar " + OTHER[me] : "Aangepast", data === "requested" ? "Tot " + OTHER[me] + " ja zegt, blijft het zoals het was." : OTHER[me] + " krijgt een seintje.");
+    } else {
+      const needs = form.who === "samen";
+      const { data, error } = await sb.from("events").insert({ ...fields, created_by: me, status: needs ? "pending" : "approved" }).select("id").single();
+      if (error) return err("Opslaan lukte niet. Controleer je internet en probeer het opnieuw.");
+      if (form.reofferId) await sb.from("events").delete().eq("id", form.reofferId);
+      notify(data.id, "new");
+      closeAdd();
+      if (needs) toast("Verstuurd naar " + OTHER[me], "Het staat in de agenda zodra " + OTHER[me] + " ja zegt.");
+      else toast("Staat in de agenda", OTHER[me] + " krijgt een seintje.");
+    }
     sel = date; const d = parse(date); cur = new Date(d.getFullYear(), d.getMonth(), 1);
     await loadEvents();
   } finally { $("sendBtn").disabled = false; }
@@ -438,7 +525,7 @@ $("impFile").onchange = async (e) => {
 };
 
 function asEvent(it, who) {
-  return { title: it.title, date: it.date, all_day: it.all_day, start_time: it.start_time, end_time: it.end_time, note: it.note, who, emoji: "📅" };
+  return { title: it.title, date: it.date, end_date: it.end_date || null, all_day: it.all_day, start_time: it.start_time, end_time: it.end_time, note: it.note, who, emoji: "📅" };
 }
 async function takeOver(it, who) {
   const needs = who === "samen";
@@ -485,7 +572,7 @@ function renderImp() {
     const c = card({ ...it, who: "samen", emoji: "📅" });
     c.className = "ev w-imp";
     const body = c.querySelector(".body"); const meta = body.querySelector(".meta");
-    meta.textContent = fShort.format(parse(it.date)) + " · " + timeText(it);
+    meta.textContent = whenText(it);
     const a = el("div", "actions");
     const b = (cls, txt, fn) => { const x = el("button", "btn " + cls, txt); x.type = "button"; x.onclick = fn; return x; };
     a.append(b(mineCls, "Alleen ik", () => takeOver(it, me.toLowerCase())), b("as-samen", "Samen", () => takeOver(it, "samen")), b("nope", "Niet", () => skipItem(it)));

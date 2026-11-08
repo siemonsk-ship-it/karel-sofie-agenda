@@ -184,3 +184,11 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
 .btn.as-karel{background:var(--karel);color:#fff}
 .btn.as-sofie{background:var(--sofie);color:#fff}
 .btn.as-samen{background:var(--samen);color:#fff}
+
+/* ---------- aanpassen & meerdaags ---------- */
+.evbtns{display:flex;flex-direction:column;align-items:flex-end;gap:2px}
+.pendingchg{margin-top:6px;font-size:13px;font-weight:700;color:var(--samen)}
+.pendingchg.tap{cursor:pointer;text-decoration:underline;text-underline-offset:3px}
+.reqlabel{font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:2px}
+.was{margin-top:6px;font-size:13px;color:var(--muted);font-weight:600;text-decoration:line-through;text-decoration-color:var(--line);overflow-wrap:anywhere}
+.field input[type="date"]{min-height:44px}
