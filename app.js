@@ -849,7 +849,11 @@ const standalone = matchMedia("(display-mode: standalone)").matches || navigator
 const pushSupported = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
 let swReg = null;
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js").then((r) => { swReg = r; refreshPushCard(); }).catch(() => {});
+  navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).then((r) => { swReg = r; refreshPushCard(); r.update().catch(() => {}); }).catch(() => {});
+  // a new version took over: reload once so page and code match
+  const hadController = !!navigator.serviceWorker.controller;
+  let reloaded = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => { if (hadController && !reloaded) { reloaded = true; location.reload(); } });
   navigator.serviceWorker.addEventListener("message", (e) => { if (e.data === "open-requests") setView("req"); });
 }
 function b64ToUint8(b64) { const p = "=".repeat((4 - (b64.length % 4)) % 4); const raw = atob((b64 + p).replace(/-/g, "+").replace(/_/g, "/")); return Uint8Array.from([...raw].map((c) => c.charCodeAt(0))); }
