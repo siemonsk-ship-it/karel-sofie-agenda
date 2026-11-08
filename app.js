@@ -395,6 +395,8 @@ function syncForm() {
   $("fWho").querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.v === form.who));
   emoBox.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", b.textContent === form.emoji));
   $("timeRow").hidden = $("fAllDay").checked;
+  if ($("fAllDay").checked) closePicker();
+  syncTimes();
   const multi = $("fEndDate").value && $("fEndDate").value > $("fDate").value;
   $("lStart").textContent = multi ? "Begint om (eerste dag)" : "Van";
   $("lEnd").textContent = multi ? "Eindigt om (laatste dag)" : "Tot";
@@ -415,7 +417,10 @@ function fillForm(from) {
   $("addForm").reset(); $("formErr").hidden = true;
   $("fDate").value = from ? from.date : sel;
   $("fEndDate").value = from && from.end_date ? from.end_date : $("fDate").value;
-  if (from) { $("fTitle").value = from.title; $("fNote").value = from.note || ""; $("fAllDay").checked = !!from.all_day; if (from.start_time) $("fStart").value = from.start_time; if (from.end_time) $("fEnd").value = from.end_time; }
+  if (from) { $("fTitle").value = from.title; $("fNote").value = from.note || ""; $("fAllDay").checked = !!from.all_day; }
+  $("fStart").value = from && from.start_time ? from.start_time : "19:00";
+  $("fEnd").value = from ? from.end_time || "" : "21:00";
+  closePicker();
 }
 function openAdd(from) {
   fillForm(from);
@@ -428,6 +433,56 @@ function openEdit(e) {
   form = { who: e.who, emoji: e.emoji || EMOJI[0], reofferId: null, editEv: e };
   syncForm(); $("addScrim").hidden = false;
 }
+/* ---------- eigen tijdkiezer ---------- */
+let tpField = null; // "fStart" | "fEnd"
+const pad2 = (n) => String(n).padStart(2, "0");
+function syncTimes() {
+  $("bStart").textContent = $("fStart").value || "Kies";
+  $("bEnd").textContent = $("fEnd").value || "Geen";
+  $("bStart").setAttribute("aria-expanded", tpField === "fStart");
+  $("bEnd").setAttribute("aria-expanded", tpField === "fEnd");
+}
+function closePicker() { tpField = null; $("tpick").hidden = true; syncTimes(); }
+function setTime(field, v) {
+  $(field).value = v;
+  if (field === "fStart" && $("fEnd").value && $("fEnd").value <= v && !($("fEndDate").value > $("fDate").value)) {
+    const h = Number(v.slice(0, 2)) + 1;
+    $("fEnd").value = h <= 23 ? pad2(h) + v.slice(2) : "";
+  }
+  renderPicker(); syncTimes();
+}
+function renderPicker() {
+  if (!tpField) return;
+  const v = $(tpField).value || (tpField === "fEnd" ? $("fStart").value : "") || "19:00";
+  const [hh, mm] = v.split(":");
+  const H = $("tpHours"), M = $("tpMins"); H.textContent = ""; M.textContent = "";
+  for (let h = 0; h < 24; h++) {
+    const b = el("button", null, pad2(h)); b.type = "button";
+    b.setAttribute("aria-pressed", !!$(tpField).value && pad2(h) === hh);
+    b.setAttribute("aria-label", h + " uur");
+    b.onclick = () => setTime(tpField, pad2(h) + ":" + (mm && Number(mm) % 5 === 0 ? mm : "00"));
+    H.appendChild(b);
+  }
+  for (let m = 0; m < 60; m += 5) {
+    const b = el("button", null, ":" + pad2(m)); b.type = "button";
+    b.setAttribute("aria-pressed", !!$(tpField).value && pad2(m) === mm);
+    b.setAttribute("aria-label", m + " minuten");
+    b.onclick = () => setTime(tpField, hh + ":" + pad2(m));
+    M.appendChild(b);
+  }
+  $("tpTitle").textContent = tpField === "fStart" ? "Begintijd" : "Eindtijd";
+  $("tpNone").hidden = tpField !== "fEnd";
+}
+function openPicker(field) {
+  if (tpField === field) return closePicker();
+  tpField = field; $("tpick").hidden = false; renderPicker(); syncTimes();
+  setTimeout(() => { try { $("tpick").scrollIntoView({ block: "nearest", behavior: "smooth" }); } catch {} }, 30);
+}
+$("bStart").onclick = () => openPicker("fStart");
+$("bEnd").onclick = () => openPicker("fEnd");
+$("tpDone").onclick = closePicker;
+$("tpNone").onclick = () => { $("fEnd").value = ""; closePicker(); };
+
 const closeAdd = () => { $("addScrim").hidden = true; };
 $("fab").onclick = () => openAdd();
 $("cancelAdd").onclick = closeAdd;

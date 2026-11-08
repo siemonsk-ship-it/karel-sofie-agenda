@@ -134,8 +134,16 @@
       </div>
       <label class="check"><input type="checkbox" id="fAllDay"> Hele dag</label>
       <div class="row" id="timeRow">
-        <div class="field"><label for="fStart" id="lStart">Van</label><input id="fStart" type="time" value="19:00"></div>
-        <div class="field"><label for="fEnd" id="lEnd">Tot</label><input id="fEnd" type="time" value="21:00"></div>
+        <div class="field"><span class="lbl" id="lStart">Van</span><button type="button" class="timebtn" id="bStart" aria-expanded="false" aria-controls="tpick">19:00</button><input type="hidden" id="fStart" value="19:00"></div>
+        <div class="field"><span class="lbl" id="lEnd">Tot</span><button type="button" class="timebtn" id="bEnd" aria-expanded="false" aria-controls="tpick">21:00</button><input type="hidden" id="fEnd" value="21:00"></div>
+      </div>
+      <div class="tpick" id="tpick" hidden>
+        <div class="tpick-h"><span id="tpTitle">Begintijd</span><button type="button" class="btn primary small" id="tpDone">Klaar</button></div>
+        <span class="lbl">Uur</span>
+        <div class="tgrid" id="tpHours"></div>
+        <span class="lbl">Minuten</span>
+        <div class="tgrid" id="tpMins"></div>
+        <button type="button" class="mini" id="tpNone" hidden>Geen eindtijd</button>
       </div>
       <div>
         <span class="lbl">Voor wie</span>
