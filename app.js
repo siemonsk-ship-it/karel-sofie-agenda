@@ -6,7 +6,7 @@ const sb = createClient(SUPABASE_URL, SUPABASE_KEY, {
   auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
 });
 
-const IMPORT_ON = false;
+const IMPORT_ON = true;
 const EMOJI = ["💛", "🍝", "🎬", "🎉", "✈️", "🏠", "🏃", "🎂", "☕", "🛒", "👨‍👩‍👧", "🍷"];
 const OTHER = { Karel: "Sofie", Sofie: "Karel" };
 const WHO_LABEL = { samen: "Samen", karel: "Karel", sofie: "Sofie" };
