@@ -413,8 +413,84 @@ const emoBox = $("fEmo");
 EMOJI.forEach((x) => { const b = el("button", null, x); b.type = "button"; b.setAttribute("aria-pressed", "false"); b.setAttribute("aria-label", "Plaatje " + x); b.onclick = () => { form.emoji = x; syncForm(); }; emoBox.appendChild(b); });
 $("fWho").querySelectorAll("button").forEach((b) => (b.onclick = () => { form.who = b.dataset.v; syncForm(); }));
 $("fAllDay").onchange = syncForm;
-$("fDate").onchange = () => { if (!$("fEndDate").value || $("fEndDate").value < $("fDate").value) $("fEndDate").value = $("fDate").value; syncForm(); };
-$("fEndDate").onchange = syncForm;
+/* ---------- eigen datumkiezer met puntjes, plus "wat staat er al" ---------- */
+let dpField = null, dpMonth = null;
+const fBtnDate = new Intl.DateTimeFormat("nl-NL", { weekday: "short", day: "numeric", month: "short" });
+function busyByDay() {
+  const skip = form.editEv ? form.editEv.id : null; const map = {};
+  events.filter((e) => e.status !== "declined" && e.id !== skip).forEach((e) => daysOf(e).forEach((k) => { (map[k] = map[k] || []).push(e); }));
+  return map;
+}
+function closeDatePicker() { dpField = null; $("dpick").hidden = true; }
+function syncDates() {
+  const d = $("fDate").value, e = $("fEndDate").value || d;
+  $("bDate").textContent = d ? fBtnDate.format(parse(d)) : "Kies";
+  $("bEndDate").textContent = e ? fBtnDate.format(parse(e)) : "Kies";
+  $("bDate").setAttribute("aria-expanded", dpField === "fDate"); $("bEndDate").setAttribute("aria-expanded", dpField === "fEndDate");
+  renderBusy();
+}
+function renderBusy() {
+  const B = $("dayBusy"); const d = $("fDate").value; if (!d) { B.hidden = true; return; }
+  let e = $("fEndDate").value || d; if (e < d) e = d;
+  const map = busyByDay(); const rows = []; const seen = new Set();
+  for (let k = d, i = 0; k <= e && i < 64; k = addDays(k, 1), i++) (map[k] || []).slice().sort(sortEv).forEach((ev) => { if (!seen.has(ev.id)) { seen.add(ev.id); rows.push(ev); } });
+  B.textContent = ""; B.hidden = false; B.className = "busy" + (rows.length ? " has" : "");
+  const multi = e > d;
+  if (!rows.length) { B.appendChild(el("div", "busyh", multi ? "✓ In deze periode staat nog niks in de agenda." : "✓ Op deze dag staat nog niks in de agenda.")); return; }
+  B.appendChild(el("div", "busyh", multi ? "In deze periode staat al:" : "Op deze dag staat al:"));
+  rows.forEach((ev) => {
+    const r = el("div", "busyrow");
+    r.appendChild(el("span", "dot d-" + (ev.who || "samen")));
+    const t = el("span", "bt"); t.appendChild(el("b", null, (ev.emoji ? ev.emoji + " " : "") + ev.title));
+    t.appendChild(el("small", null, (multi || spans(ev) ? whenText(ev) : timeText(ev)) + " · " + (WHO_LABEL[ev.who] || "Samen") + (ev.status === "pending" ? " · wacht op goedkeuring" : "")));
+    r.appendChild(t); B.appendChild(r);
+  });
+}
+function renderDatePicker() {
+  if (!dpField) return;
+  $("dpTitle").textContent = fMonth.format(dpMonth);
+  const G = $("dpGrid"); G.textContent = "";
+  const map = busyByDay(); const today = ymd(new Date());
+  const d = $("fDate").value, e = $("fEndDate").value || d;
+  const off = (dpMonth.getDay() + 6) % 7; const start = new Date(dpMonth.getFullYear(), dpMonth.getMonth(), 1 - off);
+  for (let i = 0; i < 42; i++) {
+    const day = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i); const k = ymd(day);
+    const c = el("button", "dpcell"); c.type = "button";
+    if (day.getMonth() !== dpMonth.getMonth()) c.classList.add("out");
+    if (k === today) c.classList.add("today");
+    if (k > d && k < e) c.classList.add("inrange");
+    if (k === d || k === e) c.classList.add("sel");
+    if (dpField === "fEndDate" && k < d) c.disabled = true;
+    c.appendChild(el("span", "n", day.getDate()));
+    const list = map[k] || [];
+    const dots = el("span", "dots");
+    list.slice(0, 3).forEach((ev) => dots.appendChild(el("span", "dot d-" + (ev.who || "samen") + (ev.status === "pending" ? " pend" : ""))));
+    c.appendChild(dots);
+    c.setAttribute("aria-label", fDay.format(day) + (list.length ? ", " + (list.length === 1 ? "1 afspraak" : list.length + " afspraken") : ", nog vrij"));
+    c.onclick = () => setDate(dpField, k);
+    G.appendChild(c);
+  }
+}
+function setDate(field, k) {
+  if (field === "fDate") {
+    const oldD = $("fDate").value, oldE = $("fEndDate").value || oldD;
+    const len = oldD && oldE > oldD ? daysBetween(oldD, oldE) : 0;
+    $("fDate").value = k; $("fEndDate").value = len ? addDays(k, len) : k;
+  } else $("fEndDate").value = k < $("fDate").value ? $("fDate").value : k;
+  closeDatePicker(); syncForm();
+}
+function openDatePicker(field) {
+  if (dpField === field) { closeDatePicker(); syncDates(); return; }
+  closePicker();
+  dpField = field; const v = $(field).value || $("fDate").value || ymd(new Date()); const p = parse(v);
+  dpMonth = new Date(p.getFullYear(), p.getMonth(), 1);
+  $("dpick").hidden = false; renderDatePicker(); syncDates();
+  setTimeout(() => { try { $("dpick").scrollIntoView({ block: "nearest", behavior: "smooth" }); } catch {} }, 30);
+}
+$("bDate").onclick = () => openDatePicker("fDate");
+$("bEndDate").onclick = () => openDatePicker("fEndDate");
+$("dpPrev").onclick = () => { dpMonth = new Date(dpMonth.getFullYear(), dpMonth.getMonth() - 1, 1); renderDatePicker(); };
+$("dpNext").onclick = () => { dpMonth = new Date(dpMonth.getFullYear(), dpMonth.getMonth() + 1, 1); renderDatePicker(); };
 const editNeedsApproval = () => form.editEv && form.editEv.status === "approved" && (form.editEv.who === "samen" || form.who === "samen");
 function syncForm() {
   $("fWho").querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.v === form.who));
@@ -422,6 +498,7 @@ function syncForm() {
   $("timeRow").hidden = $("fAllDay").checked;
   if ($("fAllDay").checked) closePicker();
   syncTimes();
+  syncDates();
   const multi = $("fEndDate").value && $("fEndDate").value > $("fDate").value;
   $("lStart").textContent = multi ? "Begint om (eerste dag)" : "Van";
   $("lEnd").textContent = multi ? "Eindigt om (laatste dag)" : "Tot";
@@ -445,7 +522,7 @@ function fillForm(from) {
   if (from) { $("fTitle").value = from.title; $("fNote").value = from.note || ""; $("fAllDay").checked = !!from.all_day; }
   $("fStart").value = from && from.start_time ? from.start_time : "19:00";
   $("fEnd").value = from ? from.end_time || "" : "21:00";
-  closePicker();
+  closePicker(); closeDatePicker();
 }
 function openAdd(from) {
   fillForm(from);
@@ -500,6 +577,7 @@ function renderPicker() {
 }
 function openPicker(field) {
   if (tpField === field) return closePicker();
+  closeDatePicker(); syncDates();
   tpField = field; $("tpick").hidden = false; renderPicker(); syncTimes();
   setTimeout(() => { try { $("tpick").scrollIntoView({ block: "nearest", behavior: "smooth" }); } catch {} }, 30);
 }

@@ -17,7 +17,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700;800&family=Nunito:wght@400;600;700;800&display=swap">
-<link rel="stylesheet" href="styles.css?v=12">
+<link rel="stylesheet" href="styles.css?v=13">
 </head>
 <body>
 
@@ -203,9 +203,16 @@
     <form class="form" id="addForm" novalidate>
       <div class="field"><label for="fTitle">Wat gaan we doen?</label><input id="fTitle" maxlength="80" placeholder="Etentje, bioscoop, weekendje weg…" required></div>
       <div class="row">
-        <div class="field"><label for="fDate">Datum</label><input id="fDate" type="date" required></div>
-        <div class="field"><label for="fEndDate">Tot en met</label><input id="fEndDate" type="date"></div>
+        <div class="field"><span class="lbl">Datum</span><button type="button" class="timebtn datebtn" id="bDate" aria-expanded="false" aria-controls="dpick"></button><input type="hidden" id="fDate"></div>
+        <div class="field"><span class="lbl">Tot en met</span><button type="button" class="timebtn datebtn" id="bEndDate" aria-expanded="false" aria-controls="dpick"></button><input type="hidden" id="fEndDate"></div>
       </div>
+      <div class="tpick" id="dpick" hidden>
+        <div class="tpick-h"><button type="button" class="iconbtn" id="dpPrev" aria-label="Vorige maand">‹</button><span id="dpTitle"></span><button type="button" class="iconbtn" id="dpNext" aria-label="Volgende maand">›</button></div>
+        <div class="dow"><div>ma</div><div>di</div><div>wo</div><div>do</div><div>vr</div><div>za</div><div>zo</div></div>
+        <div class="dpgrid" id="dpGrid"></div>
+        <p class="hint dplegend">Een puntje betekent dat er die dag al iets staat.</p>
+      </div>
+      <div class="busy" id="dayBusy" hidden></div>
       <label class="check"><input type="checkbox" id="fAllDay"> Hele dag</label>
       <div class="row" id="timeRow">
         <div class="field"><span class="lbl" id="lStart">Van</span><button type="button" class="timebtn" id="bStart" aria-expanded="false" aria-controls="tpick">19:00</button><input type="hidden" id="fStart" value="19:00"></div>
@@ -241,6 +248,6 @@
   </div>
 </div>
 
-<script type="module" src="app.js?v=12"></script>
+<script type="module" src="app.js?v=13"></script>
 </body>
 </html>

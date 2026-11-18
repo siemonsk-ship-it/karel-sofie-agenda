@@ -296,3 +296,29 @@ a.mini{text-decoration:none;display:inline-block}
 .idea .it small .spons{margin-left:0}
 .idea .ia{align-items:center}
 .cityrow{margin-top:2px}
+
+/* ---------- datumkiezer ---------- */
+.datebtn{font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#dpick .tpick-h span{text-transform:capitalize;font-family:var(--f-display);font-size:18px}
+#dpick .iconbtn{width:36px;height:36px}
+.dpgrid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}
+.dpcell{border:0;background:var(--surface);border-radius:10px;min-width:0;height:44px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-weight:800;font-variant-numeric:tabular-nums;padding:0}
+.dpcell.out{opacity:.45}
+.dpcell.today .n{color:var(--samen)}
+.dpcell.inrange{background:var(--line)}
+.dpcell.sel{background:var(--accent);color:var(--accent-ink)}
+.dpcell.sel .n{color:var(--accent-ink)}
+.dpcell.sel .dot{box-shadow:0 0 0 1.5px var(--accent-ink)}
+.dpcell:disabled{opacity:.25}
+.dpcell .dots{min-height:6px;gap:2px}
+.dpcell .dot{width:6px;height:6px}
+.dot.pend{opacity:.45}
+.dplegend{margin:0;font-size:12px}
+.busy{border-radius:14px;padding:10px 12px;background:var(--surface-2);display:flex;flex-direction:column;gap:6px}
+.busy.has{background:var(--samen-soft)}
+.busyh{font-weight:800;font-size:14px}
+.busy:not(.has) .busyh{color:var(--ok);font-weight:700}
+.busyrow{display:flex;align-items:flex-start;gap:8px}
+.busyrow .dot{flex:none;width:9px;height:9px;margin-top:6px}
+.busyrow .bt{display:flex;flex-direction:column;min-width:0;overflow-wrap:anywhere;font-size:14px}
+.busyrow small{color:var(--muted);font-weight:600;font-size:12px}
