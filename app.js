@@ -25,6 +25,7 @@ let sel = ymd(now);
 let form = { who: "samen", emoji: EMOJI[0] };
 let confirmDel = null;
 let channel = null;
+let isAdmin = false, tips = [], tipStats = [], city = null, tipsLoaded = false, confirmTip = null, tipEditId = null;
 let specialDays = [], ideas = [], wijLoaded = false, confirmIdea = null, lastSurprise = null;
 let impSource = null;     // { last_synced, last_error } or null
 let impItems = [];        // items with state 'new'
@@ -114,19 +115,20 @@ async function startApp(session) {
     return;
   }
   const email = session.user.email.toLowerCase();
-  const { data: m } = await sb.from("members").select("name").ilike("email", email).maybeSingle();
+  const { data: m } = await sb.from("members").select("name,is_admin").ilike("email", email).maybeSingle();
   if (!m) {
     await sb.auth.signOut();
     $("loginErr").textContent = "Dit e-mailadres hoort niet bij deze agenda."; $("loginErr").hidden = false;
     return;
   }
-  me = m.name;
+  me = m.name; isAdmin = !!m.is_admin; $("mAdmin").hidden = !isAdmin;
   $("loginView").hidden = true; $("appView").hidden = false; $("fab").hidden = false;
   renderMe(); render();
   await loadEvents();
   subscribe();
   refreshPushCard();
   await loadWij(true);
+  loadTips();
   // "Overnemen" staat uit; zet IMPORT_ON op true om het tabblad terug te halen
   if (IMPORT_ON) { $("tabImp").hidden = false; await loadImport(); syncImport(30 * 60 * 1000); }
 }
@@ -148,7 +150,7 @@ async function loadEvents() {
   events = data || []; loaded = true;
   render(); processNotices();
 }
-let reloadTimer = null, wijTimer = null;
+let reloadTimer = null, wijTimer = null, tipTimer = null;
 function subscribe() {
   if (channel) return;
   channel = sb.channel("events-live")
@@ -157,6 +159,8 @@ function subscribe() {
     })
     .on("postgres_changes", { event: "*", schema: "public", table: "special_days" }, () => { clearTimeout(wijTimer); wijTimer = setTimeout(loadWij, 250); })
     .on("postgres_changes", { event: "*", schema: "public", table: "date_ideas" }, () => { clearTimeout(wijTimer); wijTimer = setTimeout(loadWij, 250); })
+    .on("postgres_changes", { event: "*", schema: "public", table: "tips" }, () => { clearTimeout(tipTimer); tipTimer = setTimeout(loadTips, 250); })
+    .on("postgres_changes", { event: "*", schema: "public", table: "couple_settings" }, () => { clearTimeout(tipTimer); tipTimer = setTimeout(loadTips, 250); })
     .on("postgres_changes", { event: "INSERT", schema: "public", table: "love_pings" }, (p) => {
       if (p.new && p.new.from_member && p.new.from_member !== me) { ls.set("ks-love-seen-" + me, p.new.created_at); receiveLove(p.new.from_member, 1); }
     })
@@ -172,6 +176,7 @@ function renderMe() {
 }
 $("meBtn").onclick = (e) => { e.stopPropagation(); const open = $("menu").hidden; $("menu").hidden = !open; $("meBtn").setAttribute("aria-expanded", open); };
 document.addEventListener("click", (e) => { if (!$("menu").hidden && !e.target.closest(".mewrap")) $("menu").hidden = true; });
+$("mAdmin").onclick = () => { $("menu").hidden = true; setView("admin"); };
 $("mOut").onclick = async () => { $("menu").hidden = true; await unsubscribePush(); await sb.auth.signOut(); };
 $("mPush").onclick = () => { $("menu").hidden = true; enablePush(); };
 $("mTest").onclick = async () => {
@@ -186,8 +191,10 @@ let view = "cal";
 function setView(v) {
   view = v;
   for (const [t, name] of [["Cal", "cal"], ["Req", "req"], ["Imp", "imp"], ["Wij", "wij"]]) { $("tab" + t).setAttribute("aria-selected", v === name); $("view" + t).hidden = v !== name; }
-  if (me) $("fab").hidden = v === "wij";
+  $("viewAdmin").hidden = v !== "admin";
+  if (me) $("fab").hidden = v === "wij" || v === "admin";
   render();
+  if (v === "admin") loadTips();
   if (v === "imp") syncImport(2 * 60 * 1000);
 }
 $("tabCal").onclick = () => setView("cal"); $("tabReq").onclick = () => setView("req"); $("tabImp").onclick = () => setView("imp"); $("tabWij").onclick = () => setView("wij");
@@ -223,7 +230,7 @@ $("nextBtn").onclick = () => shiftMonth(1);
 /* ---------- rendering ---------- */
 const approved = () => events.filter((e) => e.status === "approved");
 const changeForMe = () => events.filter((e) => e.change && e.change_by !== me);
-function render() { if (!me) return; renderCal(); renderReq(); renderImp(); renderWij(); renderBadge(); }
+function render() { if (!me) return; renderCal(); renderReq(); renderImp(); renderWij(); renderTips(); renderAdmin(); renderBadge(); }
 function renderBadge() {
   const n = events.filter((e) => e.status === "pending" && e.created_by !== me).length + changeForMe().length;
   $("badge").hidden = !n; $("badge").textContent = n;
@@ -529,7 +536,7 @@ $("addForm").onsubmit = async (e) => {
       toast(data === "requested" ? "Wijziging verstuurd naar " + OTHER[me] : "Aangepast", data === "requested" ? "Tot " + OTHER[me] + " ja zegt, blijft het zoals het was." : OTHER[me] + " krijgt een seintje.");
     } else {
       const needs = form.who === "samen";
-      const { data, error } = await sb.from("events").insert({ ...fields, created_by: me, status: needs ? "pending" : "approved" }).select("id").single();
+      const { data, error } = await sb.from("events").insert({ ...fields, created_by: me, status: needs ? "pending" : "approved", ...(form.tipId ? { tip_id: form.tipId } : {}) }).select("id").single();
       if (error) return err("Opslaan lukte niet. Controleer je internet en probeer het opnieuw.");
       if (form.reofferId) await sb.from("events").delete().eq("id", form.reofferId);
       if (form.ideaId) { await sb.from("date_ideas").update({ used_at: new Date().toISOString() }).eq("id", form.ideaId); loadWij(); }
@@ -731,6 +738,143 @@ function receiveLove(from, count) {
 }
 $("loveBtn").onclick = sendLove;
 $("brandHeart").addEventListener("click", () => { if (me) sendLove(); });
+
+/* ---------- tips in de buurt ---------- */
+const DEFAULT_CITIES = ["Amsterdam"];
+async function loadTips() {
+  if (!me) return;
+  const [t, c, s] = await Promise.all([
+    sb.from("tips").select("*").order("created_at", { ascending: false }),
+    sb.from("couple_settings").select("city").eq("id", 1).maybeSingle(),
+    isAdmin ? sb.from("tip_stats").select("*") : Promise.resolve({ data: [] }),
+  ]);
+  if (!t.error) tips = t.data || [];
+  if (!c.error) city = c.data ? c.data.city : null;
+  if (!s.error) tipStats = s.data || [];
+  tipsLoaded = true;
+  renderTips(); renderAdmin();
+}
+function cityList() {
+  const set = new Set(DEFAULT_CITIES); tips.filter((x) => x.active).forEach((x) => set.add(x.city)); if (city) set.add(city);
+  return [...set].sort((a, b) => a.localeCompare(b, "nl"));
+}
+$("citySel").onchange = async () => {
+  const v = $("citySel").value || null;
+  const { error } = await sb.from("couple_settings").update({ city: v }).eq("id", 1);
+  if (error) return toast("Opslaan lukte niet", "Controleer je internet.");
+  city = v; renderTips();
+};
+function markShown(list) {
+  if (view !== "wij" || !list.length) return;
+  const today = ymd(new Date()); let seen = { d: today, ids: [] };
+  try { const p = JSON.parse(ls.get("ks-tips-shown") || "null"); if (p && p.d === today) seen = p; } catch {}
+  const fresh = list.map((x) => x.id).filter((id) => !seen.ids.includes(id));
+  if (!fresh.length) return;
+  seen.ids.push(...fresh); ls.set("ks-tips-shown", JSON.stringify(seen));
+  sb.rpc("tips_shown", { p_ids: fresh }).then(() => {}, () => {});
+}
+function safeUrl(u) { return typeof u === "string" && /^https:\/\//.test(u) ? u : ""; }
+function renderTips() {
+  if (!me) return;
+  const S = $("citySel");
+  if (document.activeElement !== S) {
+    S.textContent = "";
+    const o0 = el("option", null, "Kies jullie plaats…"); o0.value = ""; S.appendChild(o0);
+    cityList().forEach((c) => { const o = el("option", null, c); o.value = c; S.appendChild(o); });
+    S.value = city || "";
+  }
+  const L = $("tipList"); L.textContent = "";
+  const mine = city ? tips.filter((x) => x.active && x.city === city) : [];
+  mine.sort((a, b) => (b.sponsored - a.sponsored) || a.title.localeCompare(b.title, "nl"));
+  $("tipsHint").textContent = !tipsLoaded ? "Laden…"
+    : !city ? "Kies jullie plaats, dan verschijnen hier date-ideeën bij jullie in de buurt."
+    : !mine.length ? "Voor " + city + " staan er nog geen tips." + (isAdmin ? " Voeg ze toe via je naam rechtsboven, onder Beheer tips." : "")
+    : "Ideeën van zaken in " + city + ". Tik op Plannen om er een voorstel voor samen van te maken.";
+  mine.forEach((x) => {
+    const r = el("div", "tip");
+    r.appendChild(el("span", "ie", x.emoji));
+    const t = el("span", "it"); t.appendChild(el("span", null, x.title));
+    if (x.business || x.sponsored) {
+      const sm = el("small", null, x.business || "");
+      if (x.sponsored) sm.appendChild(el("span", "spons", "Gesponsord"));
+      t.appendChild(sm);
+    }
+    if (x.description) t.appendChild(el("small", "desc", x.description));
+    r.appendChild(t);
+    const a = el("span", "ia");
+    const u = safeUrl(x.url);
+    if (u) { const w = el("a", "mini", "Website"); w.href = u; w.target = "_blank"; w.rel = "noopener noreferrer"; a.appendChild(w); }
+    const p = el("button", "mini strong", "Plannen"); p.type = "button"; p.onclick = () => planTip(x); a.appendChild(p);
+    r.appendChild(a); L.appendChild(r);
+  });
+  markShown(mine);
+}
+function planTip(x) {
+  openAdd({ title: x.title, emoji: x.emoji, who: "samen", date: nextSaturday(), all_day: false, start_time: "19:00", end_time: "", note: x.business ? "Bij " + x.business : "" });
+  form.tipId = x.id;
+}
+
+/* beheer (alleen de beheerder) */
+const fMonthName = new Intl.DateTimeFormat("nl-NL", { month: "long" });
+function statsFor(id) {
+  const now = new Date(); const m = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0") + "-01";
+  const rows = tipStats.filter((s) => s.tip_id === id);
+  const sum = (list) => list.reduce((a, s) => ({ shown: a.shown + s.shown, planned: a.planned + s.planned, approved: a.approved + s.approved }), { shown: 0, planned: 0, approved: 0 });
+  return { month: sum(rows.filter((s) => s.month === m)), total: sum(rows) };
+}
+function renderAdmin() {
+  if (!me || !isAdmin || view !== "admin") return;
+  $("adminMonth").textContent = "Cijfers van " + fMonthName.format(new Date()) + " en totaal";
+  const L = $("adminList"); L.textContent = "";
+  if (!tipsLoaded) { L.appendChild(el("div", "empty", "Laden…")); return; }
+  if (!tips.length) { L.appendChild(el("div", "empty", "Nog geen tips. Voeg hierboven de eerste toe.")); return; }
+  const withStats = tips.map((x) => ({ x, s: statsFor(x.id) })).sort((a, b) => (b.s.month.planned - a.s.month.planned) || (b.s.total.planned - a.s.total.planned) || a.x.title.localeCompare(b.x.title, "nl"));
+  withStats.forEach(({ x, s }) => {
+    const c = el("div", "admintip" + (x.active ? "" : " off"));
+    const head = el("div", "ath"); head.appendChild(el("span", "ie", x.emoji));
+    const t = el("span", "it"); t.appendChild(el("span", null, x.title));
+    const sm = el("small", null, [x.business, x.city].filter(Boolean).join(" · "));
+    if (x.sponsored) sm.appendChild(el("span", "spons", "Gesponsord"));
+    if (!x.active) sm.appendChild(el("span", "spons off", "Verborgen"));
+    t.appendChild(sm); head.appendChild(t); c.appendChild(head);
+    const g = el("div", "statgrid");
+    const cell = (label, a, b) => { const d = el("div", "stat"); d.appendChild(el("b", null, a)); d.appendChild(el("span", null, label)); d.appendChild(el("small", null, "totaal " + b)); return d; };
+    g.append(cell("getoond", s.month.shown, s.total.shown), cell("ingepland", s.month.planned, s.total.planned), cell("goedgekeurd", s.month.approved, s.total.approved));
+    c.appendChild(g);
+    const a = el("div", "actions");
+    const b = (cls, txt, fn) => { const k = el("button", "mini " + cls, txt); k.type = "button"; k.onclick = fn; return k; };
+    if (confirmTip === x.id) a.append(b("danger", "Ja, verwijder met cijfers", () => deleteTip(x.id)), b("", "Nee", () => { confirmTip = null; renderAdmin(); }));
+    else a.append(b("", "Aanpassen", () => editTip(x)), b("", x.active ? "Verbergen" : "Weer tonen", () => toggleTip(x)), b("danger", "Verwijderen", () => { confirmTip = x.id; renderAdmin(); }));
+    c.appendChild(a); L.appendChild(c);
+  });
+}
+function resetTipForm() {
+  tipEditId = null; $("tipForm").reset(); $("tCity").value = city || "Amsterdam";
+  $("tipFormH").textContent = "Nieuwe tip"; $("tipSave").textContent = "Tip toevoegen"; $("tipCancel").hidden = true; $("tipErr").hidden = true;
+}
+function editTip(x) {
+  tipEditId = x.id; $("tTitle").value = x.title; $("tBusiness").value = x.business; $("tCity").value = x.city; $("tDesc").value = x.description; $("tUrl").value = x.url; $("tSponsored").checked = x.sponsored;
+  $("tipFormH").textContent = "Tip aanpassen"; $("tipSave").textContent = "Opslaan"; $("tipCancel").hidden = false; $("tipErr").hidden = true;
+  try { $("tipForm").scrollIntoView({ block: "start", behavior: "smooth" }); } catch {}
+}
+$("tipCancel").onclick = resetTipForm;
+$("adminBack").onclick = () => setView("wij");
+$("tipForm").onsubmit = async (e) => {
+  e.preventDefault();
+  const err = (m) => { $("tipErr").textContent = m; $("tipErr").hidden = false; };
+  const title = $("tTitle").value.trim(), cityV = $("tCity").value.trim(), url = $("tUrl").value.trim();
+  if (!title) return err("Vul in wat het idee is.");
+  if (!cityV) return err("Vul de plaats in.");
+  if (url && !/^https:\/\//.test(url)) return err("Een website moet beginnen met https://");
+  const row = { title, city: cityV, business: $("tBusiness").value.trim(), description: $("tDesc").value.trim(), url, sponsored: $("tSponsored").checked };
+  $("tipSave").disabled = true;
+  const q = tipEditId ? sb.from("tips").update(row).eq("id", tipEditId) : sb.from("tips").insert({ ...row, emoji: ideaEmoji(title + " " + row.description) });
+  const { error } = await q; $("tipSave").disabled = false;
+  if (error) return err("Opslaan lukte niet. Controleer je internet.");
+  toast(tipEditId ? "Tip aangepast" : "Tip toegevoegd", cityV); resetTipForm(); loadTips();
+};
+async function toggleTip(x) { const { error } = await sb.from("tips").update({ active: !x.active }).eq("id", x.id); if (error) return toast("Dat lukte niet", "Controleer je internet."); loadTips(); }
+async function deleteTip(id) { confirmTip = null; const { error } = await sb.from("tips").delete().eq("id", id); if (error) return toast("Verwijderen lukte niet", "Controleer je internet."); loadTips(); }
 
 /* ---------- overnemen uit een andere agenda ---------- */
 const fTime = new Intl.DateTimeFormat("nl-NL", { hour: "2-digit", minute: "2-digit" });

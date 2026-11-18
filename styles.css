@@ -268,3 +268,28 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
 @keyframes floatup{0%{transform:translateY(0) scale(.6);opacity:0}15%{opacity:1}100%{transform:translateY(-95vh) scale(1.1) rotate(12deg);opacity:0}}
 .monthbar h2{font-size:clamp(20px,6.2vw,24px);white-space:nowrap}
 .monthbar{gap:8px}
+
+/* ---------- tips in de buurt ---------- */
+.cityrow{display:flex;align-items:center;gap:10px;margin:0 2px 8px}
+.cityrow label{font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.cityrow select{flex:1;min-width:0;border:2px solid var(--line);background:var(--surface);color:var(--ink);border-radius:12px;padding:9px 10px;font:inherit;font-weight:700}
+.tip{display:flex;align-items:center;gap:10px;background:var(--surface);border-radius:14px;padding:10px;box-shadow:var(--shadow)}
+.tip .ie,.admintip .ie{font-size:24px;width:36px;text-align:center;flex:none}
+.tip .it,.admintip .it{flex:1;min-width:0;display:flex;flex-direction:column;font-weight:800;overflow-wrap:anywhere}
+.tip .it small,.admintip .it small{color:var(--muted);font-weight:600;font-size:12px}
+.tip .it small.desc{font-size:13px}
+.tip .ia{display:flex;flex-direction:column;align-items:flex-end;flex:none}
+a.mini{text-decoration:none;display:inline-block}
+.mini.strong{color:var(--samen);font-weight:800}
+.spons{display:inline-block;margin-left:6px;font-size:10px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;padding:1px 7px;border-radius:999px;background:var(--samen-soft);color:var(--samen)}
+.spons.off{background:var(--surface-2);color:var(--muted)}
+#tipList{gap:8px}
+.admintip{background:var(--surface);border-radius:16px;padding:12px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:10px}
+.admintip.off{opacity:.6}
+.ath{display:flex;align-items:center;gap:10px}
+.statgrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.stat{background:var(--surface-2);border-radius:12px;padding:8px 6px;display:flex;flex-direction:column;align-items:center;text-align:center}
+.stat b{font-family:var(--f-display);font-size:24px;line-height:1.1;font-variant-numeric:tabular-nums}
+.stat span{font-size:12px;font-weight:800}
+.stat small{font-size:11px;color:var(--muted);font-weight:600;font-variant-numeric:tabular-nums}
+#tipForm h4{margin:0}

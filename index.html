@@ -17,7 +17,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700;800&family=Nunito:wght@400;600;700;800&display=swap">
-<link rel="stylesheet" href="styles.css?v=10">
+<link rel="stylesheet" href="styles.css?v=11">
 </head>
 <body>
 
@@ -52,6 +52,7 @@
         <div class="sub" id="menuWho"></div>
         <button type="button" id="mPush">Meldingen aanzetten</button>
         <button type="button" id="mTest">Testmelding sturen</button>
+        <button type="button" id="mAdmin" hidden>Beheer tips</button>
         <button type="button" id="mOut">Uitloggen</button>
       </div>
     </div>
@@ -115,6 +116,34 @@
       <button class="btn primary" type="submit">Erbij</button>
     </form>
     <div class="list" id="ideaList"></div>
+
+    <div class="wijhead"><h4>Tips in de buurt</h4></div>
+    <div class="cityrow"><label for="citySel">Jullie plaats</label><select id="citySel"></select></div>
+    <p class="hint" id="tipsHint"></p>
+    <div class="list" id="tipList"></div>
+  </section>
+
+  <section id="viewAdmin" class="wij" hidden>
+    <div class="wijhead"><h4>Beheer tips</h4><button class="mini" id="adminBack" type="button">← Terug</button></div>
+    <p class="hint">Alleen jij ziet deze pagina. De cijfers zijn totalen per tip. Je ziet nooit wie iets heeft ingepland.</p>
+    <form class="form impbox" id="tipForm" novalidate>
+      <h4 id="tipFormH">Nieuwe tip</h4>
+      <div class="field"><label for="tTitle">Wat is het idee?</label><input id="tTitle" maxlength="80" placeholder="Samen pizza bakken"></div>
+      <div class="row">
+        <div class="field"><label for="tBusiness">Bedrijf</label><input id="tBusiness" maxlength="80" placeholder="Naam van de zaak"></div>
+        <div class="field"><label for="tCity">Plaats</label><input id="tCity" maxlength="60" value="Amsterdam"></div>
+      </div>
+      <div class="field"><label for="tDesc">Korte omschrijving (mag leeg)</label><input id="tDesc" maxlength="200" placeholder="Workshop van 2 uur, inclusief drankje"></div>
+      <div class="field"><label for="tUrl">Website (mag leeg)</label><input id="tUrl" type="url" inputmode="url" maxlength="300" placeholder="https://…"></div>
+      <label class="check"><input type="checkbox" id="tSponsored"> Gesponsord (het bedrijf betaalt voor deze plek)</label>
+      <p class="err" id="tipErr" hidden></p>
+      <div class="sheetfoot">
+        <button type="button" class="btn nope" id="tipCancel" hidden>Annuleren</button>
+        <button type="submit" class="btn primary" id="tipSave">Tip toevoegen</button>
+      </div>
+    </form>
+    <div class="wijhead"><h4>Alle tips</h4><span class="muted" id="adminMonth"></span></div>
+    <div class="list" id="adminList"></div>
   </section>
 
   <section id="viewImp" class="req" hidden>
@@ -215,6 +244,6 @@
   </div>
 </div>
 
-<script type="module" src="app.js?v=10"></script>
+<script type="module" src="app.js?v=11"></script>
 </body>
 </html>
