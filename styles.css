@@ -322,3 +322,76 @@ a.mini{text-decoration:none;display:inline-block}
 .busyrow .dot{flex:none;width:9px;height:9px;margin-top:6px}
 .busyrow .bt{display:flex;flex-direction:column;min-width:0;overflow-wrap:anywhere;font-size:14px}
 .busyrow small{color:var(--muted);font-weight:600;font-size:12px}
+
+/* ================= uitstraling ================= */
+/* De kleuren van Karel (blauw), Sofie (roze) en Samen (oranje) blijven in elke uitstraling gelijk. */
+
+/* ---- mannelijk: strak, donkerblauw, hoekig ---- */
+:root[data-look="mannelijk"]{
+  --bg:#EEF1F4; --surface:#FFFFFF; --surface-2:#DFE5EA; --ink:#15202B; --muted:#566573; --line:#CBD3DA;
+  --accent:#1F4E79; --accent-ink:#FFFFFF;
+  --shadow:0 4px 12px rgba(20,40,60,.14);
+  --f-display:"Archivo","Arial Narrow",system-ui,sans-serif;
+  --f-body:"Archivo",system-ui,-apple-system,"Segoe UI",sans-serif;
+}
+@media (prefers-color-scheme: dark){:root[data-look="mannelijk"]{
+  --bg:#0F1418; --surface:#182028; --surface-2:#212C36; --ink:#E8EEF2; --muted:#93A3B0; --line:#2C3A46;
+  --accent:#4DA3D9; --accent-ink:#06131C; --shadow:0 4px 12px rgba(0,0,0,.4)}}
+:root[data-look="mannelijk"] :is(.ev,.cal,.btn,.tabs,.tab,.cell,.iconbtn,.todaybtn,.timebtn,.idea,.lovecard,.countdown,.impbox,.impstatus,.pushcard,.toast,.busy,.tpick,.dpcell,.emo,.note,.empty,.stat,.admintip,.surprisecard,.fab,.me,.menu,.cd-num,.holpill,.chip,.badge,.card,.lookopt,.tgrid button,.emos button,.seg button,.field input,.field textarea,.ideaform input,.cityrow select){border-radius:8px}
+:root[data-look="mannelijk"] .sheet{border-radius:14px 14px 0 0}
+:root[data-look="mannelijk"] .lovebtn{border-radius:14px;animation:none;background:var(--surface-2);box-shadow:none}
+:root[data-look="mannelijk"] .brand{letter-spacing:-.02em;text-transform:uppercase;font-size:24px}
+:root[data-look="mannelijk"] .brand svg{display:none}
+:root[data-look="mannelijk"] .brand .k::after{content:"&";color:var(--muted);margin-left:6px;font-weight:700}
+:root[data-look="mannelijk"] :is(.monthbar h2,.dayhead h3,.wijhead h4,.sheet h2,.req h4,.lovetxt b){letter-spacing:-.01em}
+:root[data-look="mannelijk"] .countdown{background:var(--surface);border-left:6px solid var(--accent)}
+:root[data-look="mannelijk"] .cd-num{background:var(--surface-2);color:var(--accent)}
+:root[data-look="mannelijk"] .fab{box-shadow:var(--shadow)}
+
+/* ---- neutraal: rustig groen ---- */
+:root[data-look="neutraal"]{
+  --bg:#EFF3EF; --surface:#FFFFFF; --surface-2:#DDE7DF; --ink:#1E2A24; --muted:#5C6B62; --line:#CBD8CF;
+  --accent:#2E7D5B; --accent-ink:#FFFFFF;
+  --shadow:0 5px 14px rgba(30,60,45,.12);
+  --f-display:"Outfit","Trebuchet MS",system-ui,sans-serif;
+}
+@media (prefers-color-scheme: dark){:root[data-look="neutraal"]{
+  --bg:#121814; --surface:#1B241E; --surface-2:#25322A; --ink:#E9F0EB; --muted:#9AAB9F; --line:#2F3E34;
+  --accent:#5FBF8F; --accent-ink:#08130D; --shadow:0 5px 14px rgba(0,0,0,.4)}}
+:root[data-look="neutraal"] :is(.ev,.cal,.lovecard,.countdown,.impbox,.surprisecard,.fab){border-radius:14px}
+:root[data-look="neutraal"] .lovebtn{animation:none;background:var(--surface-2);box-shadow:none}
+:root[data-look="neutraal"] .countdown{background:linear-gradient(120deg,var(--surface-2),var(--samen-soft))}
+:root[data-look="neutraal"] .fab{box-shadow:var(--shadow)}
+
+/* "Onze dagen" in de kalender: roze alleen in de vrouwelijke uitstraling */
+:root:is([data-look="mannelijk"],[data-look="neutraal"]) .hol.sd{color:var(--accent)}
+:root:is([data-look="mannelijk"],[data-look="neutraal"]) .cell.special:not(.sel){background:var(--surface-2)}
+:root:is([data-look="mannelijk"],[data-look="neutraal"]) .ev.w-sd{border-left-color:var(--accent)}
+:root:is([data-look="mannelijk"],[data-look="neutraal"]) .w-sd .emo{background:var(--surface-2)}
+
+/* keuzescherm */
+.looks{display:flex;flex-direction:column;gap:10px;margin:12px 0}
+.lookopt{display:flex;align-items:center;gap:14px;text-align:left;border:2px solid var(--line);background:var(--bg);border-radius:16px;padding:12px}
+.lookopt[aria-pressed="true"]{border-color:var(--accent);background:var(--surface-2)}
+.lookopt .lt{display:flex;flex-direction:column;min-width:0}
+.lookopt .lt b{font-size:17px}
+.lookopt .lt small{color:var(--muted);font-weight:600}
+.lookopt .sw{flex:none;width:56px;height:56px;border-radius:14px;position:relative;overflow:hidden;display:grid;place-items:center;font-size:22px}
+.lookopt .sw i{position:absolute;inset:0}
+.lookopt .sw i:nth-child(2){inset:auto 0 0 0;height:38%}
+.lookopt .sw span{position:relative}
+.lookopt[data-look="vrouwelijk"] .sw{border-radius:20px}
+.lookopt[data-look="vrouwelijk"] .sw i:first-child{background:#F2F4FF}
+.lookopt[data-look="vrouwelijk"] .sw i:nth-child(2){background:#6C4CF5}
+.lookopt[data-look="mannelijk"] .sw{border-radius:6px}
+.lookopt[data-look="mannelijk"] .sw i:first-child{background:#DFE5EA}
+.lookopt[data-look="mannelijk"] .sw i:nth-child(2){background:#1F4E79}
+.lookopt[data-look="neutraal"] .sw i:first-child{background:#DDE7DF}
+.lookopt[data-look="neutraal"] .sw i:nth-child(2){background:#2E7D5B}
+
+/* smalle telefoons: tabbladen en maandbalk passen altijd */
+.tab{min-width:0;font-size:clamp(11.5px,3.5vw,13px);padding-inline:2px}
+.monthbar .nav{flex:none}
+.monthbar h2{min-width:0;overflow:hidden;text-overflow:ellipsis}
+:root:is([data-look="mannelijk"],[data-look="neutraal"]) .monthbar h2{font-size:clamp(17px,5.2vw,22px)}
+.todaybtn{padding:0 10px}

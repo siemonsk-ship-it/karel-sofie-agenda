@@ -7,6 +7,26 @@ const sb = createClient(SUPABASE_URL, SUPABASE_KEY, {
 });
 
 const IMPORT_ON = true;
+
+/* ---------- uitstraling ---------- */
+const LOOKS = {
+  vrouwelijk: { label: "Vrouwelijk", desc: "Zacht, rond en met hartjes", emoji: "💛", burst: ["💛", "💖", "💗", "🧡", "💕"], thing: "hartje", Thing: "Hartje", how: "Tik op het hart" },
+  mannelijk: { label: "Mannelijk", desc: "Strak, donkerblauw en hoekig", emoji: "👊", burst: ["👊", "🤜", "🤛", "⚡", "🔥"], thing: "boks", Thing: "Boks", how: "Tik op de vuist" },
+  neutraal: { label: "Neutraal", desc: "Rustig groen, niet te zoet en niet te stoer", emoji: "✨", burst: ["✨", "💫", "⭐", "🌟"], thing: "seintje", Thing: "Seintje", how: "Tik op de ster" },
+};
+let look = "vrouwelijk";
+function applyLook(v) {
+  look = LOOKS[v] ? v : "vrouwelijk";
+  document.documentElement.dataset.look = look;
+  try { localStorage.setItem("ks-look", look); } catch {}
+  try {
+    const bg = getComputedStyle(document.documentElement).getPropertyValue("--bg").trim();
+    if (bg) document.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.setAttribute("content", bg));
+  } catch {}
+  const b = document.getElementById("loveBtn");
+  if (b) { b.textContent = LOOKS[look].emoji; b.setAttribute("aria-label", "Stuur een " + LOOKS[look].thing); }
+}
+try { applyLook(localStorage.getItem("ks-look") || "vrouwelijk"); } catch { applyLook("vrouwelijk"); }
 const EMOJI = ["💛", "🍝", "🎬", "🎉", "✈️", "🏠", "🏃", "🎂", "☕", "🛒", "👨‍👩‍👧", "🍷"];
 const OTHER = { Karel: "Sofie", Sofie: "Karel" };
 const WHO_LABEL = { samen: "Samen", karel: "Karel", sofie: "Sofie" };
@@ -115,13 +135,14 @@ async function startApp(session) {
     return;
   }
   const email = session.user.email.toLowerCase();
-  const { data: m } = await sb.from("members").select("name,is_admin").ilike("email", email).maybeSingle();
+  const { data: m } = await sb.from("members").select("name,is_admin,look").ilike("email", email).maybeSingle();
   if (!m) {
     await sb.auth.signOut();
     $("loginErr").textContent = "Dit e-mailadres hoort niet bij deze agenda."; $("loginErr").hidden = false;
     return;
   }
   me = m.name; isAdmin = !!m.is_admin; $("mAdmin").hidden = !isAdmin;
+  applyLook(m.look);
   $("loginView").hidden = true; $("appView").hidden = false; $("fab").hidden = false;
   renderMe(); render();
   await loadEvents();
@@ -176,6 +197,23 @@ function renderMe() {
 }
 $("meBtn").onclick = (e) => { e.stopPropagation(); const open = $("menu").hidden; $("menu").hidden = !open; $("meBtn").setAttribute("aria-expanded", open); };
 document.addEventListener("click", (e) => { if (!$("menu").hidden && !e.target.closest(".mewrap")) $("menu").hidden = true; });
+function renderLooks() {
+  const L = $("lookList"); L.textContent = "";
+  Object.entries(LOOKS).forEach(([k, v]) => {
+    const b = el("button", "lookopt"); b.type = "button"; b.dataset.look = k; b.setAttribute("aria-pressed", k === look);
+    const sw = el("span", "sw"); sw.appendChild(el("i")); sw.appendChild(el("i")); sw.appendChild(el("span", null, v.emoji)); b.appendChild(sw);
+    const t = el("span", "lt"); t.appendChild(el("b", null, v.label)); t.appendChild(el("small", null, v.desc)); b.appendChild(t);
+    b.onclick = async () => {
+      applyLook(k); renderLooks(); render();
+      const { error } = await sb.rpc("set_look", { p_look: k });
+      if (error) toast("Opslaan lukte niet", "Je keuze geldt nu alleen op deze telefoon.");
+    };
+    L.appendChild(b);
+  });
+}
+$("mLook").onclick = () => { $("menu").hidden = true; renderLooks(); $("lookScrim").hidden = false; };
+$("lookDone").onclick = () => { $("lookScrim").hidden = true; };
+$("lookScrim").onclick = (e) => { if (e.target === $("lookScrim")) $("lookScrim").hidden = true; };
 $("mAdmin").onclick = () => { $("menu").hidden = true; setView("admin"); };
 $("mOut").onclick = async () => { $("menu").hidden = true; await unsubscribePush(); await sb.auth.signOut(); };
 $("mPush").onclick = () => { $("menu").hidden = true; enablePush(); };
@@ -675,7 +713,7 @@ function renderCountdown() {
 
 function renderWij() {
   if (!me) return;
-  $("loveSub").textContent = "Tik op het hart en " + OTHER[me] + " krijgt een hartje op de telefoon.";
+  $("loveSub").textContent = LOOKS[look].how + " en " + OTHER[me] + " krijgt een berichtje op de telefoon.";
   const today = ymd(new Date());
   // onze dagen
   const L = $("sdList"); L.textContent = "";
@@ -828,7 +866,7 @@ $("surpriseBtn").onclick = () => {
 let loveCooldown = 0;
 function burst(n) {
   if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-  const H = $("hearts"); const set = ["💛", "💖", "💗", "🧡", "💕"];
+  const H = $("hearts"); const set = LOOKS[look].burst;
   for (let i = 0; i < (n || 14); i++) {
     const h = el("span", "fh", set[i % set.length]);
     h.style.left = 8 + Math.random() * 84 + "%"; h.style.animationDelay = Math.random() * 0.6 + "s"; h.style.fontSize = 18 + Math.random() * 22 + "px";
@@ -836,17 +874,18 @@ function burst(n) {
   }
 }
 async function sendLove() {
-  if (Date.now() < loveCooldown) return toast("Hartje is al onderweg 💛", "Over een paar tellen kun je er weer een sturen.");
+  if (Date.now() < loveCooldown) return toast(LOOKS[look].Thing + " is al onderweg " + LOOKS[look].emoji, "Over een paar tellen kun je er weer een sturen.");
   loveCooldown = Date.now() + 8000;
   burst(10);
   const { error } = await sb.from("love_pings").insert({ from_member: me });
-  if (error) return toast("Hartje versturen lukte niet", "Controleer je internet.");
+  if (error) return toast("Versturen lukte niet", "Controleer je internet.");
   notify(null, "love");
-  toast("Hartje verstuurd naar " + OTHER[me] + " 💛", "");
+  toast(LOOKS[look].Thing + " verstuurd naar " + OTHER[me] + " " + LOOKS[look].emoji, "");
 }
 function receiveLove(from, count) {
   burst(18);
-  toast(count > 1 ? from + " dacht " + count + "× aan je 💛" : from + " denkt aan je 💛", count > 1 ? "Terwijl de app dicht was." : "", [["primary", "Hartje terug", () => sendLove()]], 8000);
+  const L = LOOKS[look];
+  toast(count > 1 ? from + " dacht " + count + "× aan je " + L.emoji : from + " denkt aan je " + L.emoji, count > 1 ? "Terwijl de app dicht was." : "", [["primary", L.Thing + " terug", () => sendLove()]], 8000);
 }
 $("loveBtn").onclick = sendLove;
 $("brandHeart").addEventListener("click", () => { if (me) sendLove(); });
