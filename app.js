@@ -615,27 +615,58 @@ function renderWij() {
       r.appendChild(b); L.appendChild(r);
     });
   }
-  // date-potje
+  renderPotje();
+}
+
+/* date-potje: eigen ideeën met de tips uit de buurt ertussendoor */
+function cityTips() {
+  const list = city ? tips.filter((x) => x.active && x.city === city) : [];
+  return list.sort((p, q) => (q.sponsored - p.sponsored) || p.title.localeCompare(q.title, "nl"));
+}
+function ideaRow(x) {
+  const r = el("div", "idea" + (x.used_at ? " done" : ""));
+  r.appendChild(el("span", "ie", x.emoji));
+  const t = el("span", "it"); t.appendChild(el("span", null, x.title)); t.appendChild(el("small", null, x.used_at ? "✓ gepland" : "van " + x.created_by)); r.appendChild(t);
+  const a = el("span", "ia");
+  if (confirmIdea === x.id) {
+    const y = el("button", "mini danger", "Weg"); y.type = "button"; y.onclick = () => deleteIdea(x.id);
+    const n = el("button", "mini", "Nee"); n.type = "button"; n.onclick = () => { confirmIdea = null; renderPotje(); };
+    a.append(y, n);
+  } else {
+    const p = el("button", "mini", "Plannen"); p.type = "button"; p.onclick = () => planIdea(x);
+    const d = el("button", "mini", "×"); d.type = "button"; d.setAttribute("aria-label", "Idee verwijderen"); d.onclick = () => { confirmIdea = x.id; renderPotje(); };
+    a.append(p, d);
+  }
+  r.appendChild(a); return r;
+}
+function tipLabel(x) { return el("span", "spons" + (x.sponsored ? "" : " off"), x.sponsored ? "Gesponsord" : "Tip"); }
+function tipRow(x) {
+  const r = el("div", "idea tiprow");
+  r.appendChild(el("span", "ie", x.emoji));
+  const t = el("span", "it"); t.appendChild(el("span", null, x.title));
+  const sm = el("small", null, x.business ? x.business + " " : ""); sm.appendChild(tipLabel(x)); t.appendChild(sm);
+  if (x.description) t.appendChild(el("small", null, x.description));
+  r.appendChild(t);
+  const a = el("span", "ia");
+  const u = safeUrl(x.url);
+  if (u) { const w = el("a", "mini", "Website"); w.href = u; w.target = "_blank"; w.rel = "noopener noreferrer"; a.appendChild(w); }
+  const p = el("button", "mini", "Plannen"); p.type = "button"; p.onclick = () => planTip(x); a.appendChild(p);
+  r.appendChild(a); return r;
+}
+function renderPotje() {
+  if (!me) return;
   const I = $("ideaList"); I.textContent = "";
   const open = ideas.filter((x) => !x.used_at), done = ideas.filter((x) => x.used_at);
-  $("surpriseBtn").disabled = !ideas.length;
-  if (wijLoaded && !ideas.length) I.appendChild(el("div", "empty", "Het potje is nog leeg. Wat zouden jullie graag eens samen doen?"));
-  [...open, ...done].forEach((x) => {
-    const r = el("div", "idea" + (x.used_at ? " done" : ""));
-    r.appendChild(el("span", "ie", x.emoji));
-    const t = el("span", "it"); t.appendChild(el("span", null, x.title)); t.appendChild(el("small", null, x.used_at ? "✓ gepland" : "van " + x.created_by)); r.appendChild(t);
-    const a = el("span", "ia");
-    if (confirmIdea === x.id) {
-      const y = el("button", "mini danger", "Weg"); y.type = "button"; y.onclick = () => deleteIdea(x.id);
-      const n = el("button", "mini", "Nee"); n.type = "button"; n.onclick = () => { confirmIdea = null; renderWij(); };
-      a.append(y, n);
-    } else {
-      const p = el("button", "mini", "Plannen"); p.type = "button"; p.onclick = () => planIdea(x);
-      const d = el("button", "mini", "×"); d.type = "button"; d.setAttribute("aria-label", "Idee verwijderen"); d.onclick = () => { confirmIdea = x.id; renderWij(); };
-      a.append(p, d);
-    }
-    r.appendChild(a); I.appendChild(r);
-  });
+  const mine = cityTips();
+  $("surpriseBtn").disabled = !(ideas.length || mine.length);
+  if (wijLoaded && !ideas.length && !mine.length) I.appendChild(el("div", "empty", "Het potje is nog leeg. Wat zouden jullie graag eens samen doen?"));
+  const n = Math.max(open.length, mine.length);
+  for (let i = 0; i < n; i++) {
+    if (open[i]) I.appendChild(ideaRow(open[i]));
+    if (mine[i]) I.appendChild(tipRow(mine[i]));
+  }
+  done.forEach((x) => I.appendChild(ideaRow(x)));
+  markShown(mine);
 }
 
 /* onze dagen: toevoegen / aanpassen */
@@ -698,16 +729,23 @@ function planIdea(x) {
   form.ideaId = x.id;
 }
 $("surpriseBtn").onclick = () => {
-  const pool = ideas.filter((x) => !x.used_at); const from = pool.length ? pool : ideas; if (!from.length) return;
+  const openIdeas = ideas.filter((x) => !x.used_at).map((x) => ({ kind: "idea", x }));
+  const tipPool = cityTips().map((x) => ({ kind: "tip", x }));
+  let from = [...openIdeas, ...tipPool];
+  if (!from.length) from = ideas.map((x) => ({ kind: "idea", x }));
+  if (!from.length) return;
   let pick = from[Math.floor(Math.random() * from.length)];
-  if (from.length > 1 && lastSurprise && pick.id === lastSurprise) pick = from.find((x) => x.id !== lastSurprise);
-  lastSurprise = pick.id;
+  if (from.length > 1 && lastSurprise && pick.x.id === lastSurprise) pick = from.find((p) => p.x.id !== lastSurprise);
+  lastSurprise = pick.x.id;
+  const x = pick.x, isTip = pick.kind === "tip";
   const O = $("surpriseOut"); O.textContent = "";
   const c = el("div", "surprisecard");
-  c.appendChild(el("div", "se", pick.emoji));
-  const t = el("div", "st"); t.appendChild(el("small", null, "Wat dachten jullie van…")); t.appendChild(el("b", null, pick.title)); c.appendChild(t);
+  c.appendChild(el("div", "se", x.emoji));
+  const t = el("div", "st"); t.appendChild(el("small", null, "Wat dachten jullie van…")); t.appendChild(el("b", null, x.title));
+  if (isTip) { const sm = el("small", null, x.business ? x.business + " " : ""); sm.appendChild(tipLabel(x)); t.appendChild(sm); }
+  c.appendChild(t);
   const a = el("div", "actions");
-  const p = el("button", "btn as-samen", "Plannen"); p.type = "button"; p.onclick = () => { O.textContent = ""; planIdea(pick); };
+  const p = el("button", "btn as-samen", "Plannen"); p.type = "button"; p.onclick = () => { O.textContent = ""; isTip ? planTip(x) : planIdea(x); };
   const n = el("button", "btn nope", "Nog een keer"); n.type = "button"; n.onclick = () => $("surpriseBtn").onclick();
   a.append(p, n); c.appendChild(a); O.appendChild(c);
 };
@@ -783,31 +821,12 @@ function renderTips() {
     cityList().forEach((c) => { const o = el("option", null, c); o.value = c; S.appendChild(o); });
     S.value = city || "";
   }
-  const L = $("tipList"); L.textContent = "";
-  const mine = city ? tips.filter((x) => x.active && x.city === city) : [];
-  mine.sort((a, b) => (b.sponsored - a.sponsored) || a.title.localeCompare(b.title, "nl"));
-  $("tipsHint").textContent = !tipsLoaded ? "Laden…"
-    : !city ? "Kies jullie plaats, dan verschijnen hier date-ideeën bij jullie in de buurt."
+  const mine = cityTips();
+  $("tipsHint").textContent = !tipsLoaded ? ""
+    : !city ? "Kies jullie plaats, dan komen er ook date-tips uit de buurt in het potje."
     : !mine.length ? "Voor " + city + " staan er nog geen tips." + (isAdmin ? " Voeg ze toe via je naam rechtsboven, onder Beheer tips." : "")
-    : "Ideeën van zaken in " + city + ". Tik op Plannen om er een voorstel voor samen van te maken.";
-  mine.forEach((x) => {
-    const r = el("div", "tip");
-    r.appendChild(el("span", "ie", x.emoji));
-    const t = el("span", "it"); t.appendChild(el("span", null, x.title));
-    if (x.business || x.sponsored) {
-      const sm = el("small", null, x.business || "");
-      if (x.sponsored) sm.appendChild(el("span", "spons", "Gesponsord"));
-      t.appendChild(sm);
-    }
-    if (x.description) t.appendChild(el("small", "desc", x.description));
-    r.appendChild(t);
-    const a = el("span", "ia");
-    const u = safeUrl(x.url);
-    if (u) { const w = el("a", "mini", "Website"); w.href = u; w.target = "_blank"; w.rel = "noopener noreferrer"; a.appendChild(w); }
-    const p = el("button", "mini strong", "Plannen"); p.type = "button"; p.onclick = () => planTip(x); a.appendChild(p);
-    r.appendChild(a); L.appendChild(r);
-  });
-  markShown(mine);
+    : "Er " + (mine.length === 1 ? "zit 1 tip" : "zitten " + mine.length + " tips") + " uit " + city + " in het potje. Die herken je aan het label Tip of Gesponsord.";
+  renderPotje();
 }
 function planTip(x) {
   openAdd({ title: x.title, emoji: x.emoji, who: "samen", date: nextSaturday(), all_day: false, start_time: "19:00", end_time: "", note: x.business ? "Bij " + x.business : "" });
