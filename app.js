@@ -737,14 +737,9 @@ function renderPotje() {
   const open = ideas.filter((x) => !x.used_at), done = ideas.filter((x) => x.used_at);
   const mine = cityTips();
   $("surpriseBtn").disabled = !(ideas.length || mine.length);
-  if (wijLoaded && !ideas.length && !mine.length) I.appendChild(el("div", "empty", "Het potje is nog leeg. Wat zouden jullie graag eens samen doen?"));
-  const n = Math.max(open.length, mine.length);
-  for (let i = 0; i < n; i++) {
-    if (open[i]) I.appendChild(ideaRow(open[i]));
-    if (mine[i]) I.appendChild(tipRow(mine[i]));
-  }
-  done.forEach((x) => I.appendChild(ideaRow(x)));
-  markShown(mine);
+  if (wijLoaded && !ideas.length) I.appendChild(el("div", "empty", mine.length ? "Nog geen eigen ideeën. Wat zouden jullie graag eens samen doen?" : "Het potje is nog leeg. Wat zouden jullie graag eens samen doen?"));
+  // tips uit de buurt staan niet in de lijst; ze komen alleen voorbij via Verras me
+  [...open, ...done].forEach((x) => I.appendChild(ideaRow(x)));
 }
 
 /* onze dagen: toevoegen / aanpassen */
@@ -816,6 +811,7 @@ $("surpriseBtn").onclick = () => {
   if (from.length > 1 && lastSurprise && pick.x.id === lastSurprise) pick = from.find((p) => p.x.id !== lastSurprise);
   lastSurprise = pick.x.id;
   const x = pick.x, isTip = pick.kind === "tip";
+  if (isTip) markShown([x]);
   const O = $("surpriseOut"); O.textContent = "";
   const c = el("div", "surprisecard");
   c.appendChild(el("div", "se", x.emoji));
@@ -903,7 +899,7 @@ function renderTips() {
   $("tipsHint").textContent = !tipsLoaded ? ""
     : !city ? "Kies jullie plaats, dan komen er ook date-tips uit de buurt in het potje."
     : !mine.length ? "Voor " + city + " staan er nog geen tips." + (isAdmin ? " Voeg ze toe via je naam rechtsboven, onder Beheer tips." : "")
-    : "Er " + (mine.length === 1 ? "zit 1 tip" : "zitten " + mine.length + " tips") + " uit " + city + " in het potje. Die herken je aan het label Tip of Gesponsord.";
+    : "Er " + (mine.length === 1 ? "zit 1 tip" : "zitten " + mine.length + " tips") + " uit " + city + " in het potje. Ze komen voorbij als je op Verras me tikt.";
   renderPotje();
 }
 function planTip(x) {
