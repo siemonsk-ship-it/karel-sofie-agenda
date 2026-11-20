@@ -1125,6 +1125,7 @@ const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
 const standalone = matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
 const pushSupported = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
 let swReg = null;
+let pushBusy = false;
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).then((r) => { swReg = r; refreshPushCard(); r.update().catch(() => {}); }).catch(() => {});
   // a new version took over: reload once so page and code match
@@ -1154,27 +1155,70 @@ async function refreshPushCard() {
   if (sub) { card.hidden = true; saveSub(sub); return; }
   card.hidden = false;
   $("pushTxt").innerHTML = "Meldingen staan uit<span>Zet ze aan, dan hoor je het als er iets nieuws in de agenda komt.</span>";
+  if (!pushBusy) $("pushBtn").textContent = "Aanzetten";
 }
 async function saveSub(sub) {
   const j = sub.toJSON();
   await sb.from("push_subscriptions").upsert({ endpoint: j.endpoint, member: me, p256dh: j.keys.p256dh, auth: j.keys.auth }, { onConflict: "endpoint" });
 }
+function askPermission() {
+  // oudere browsers geven het antwoord via een callback in plaats van een promise
+  return new Promise((resolve) => {
+    let done = false; const fin = (v) => { if (!done) { done = true; resolve(v || Notification.permission); } };
+    try { const r = Notification.requestPermission(fin); if (r && r.then) r.then(fin, () => fin()); } catch { fin(); }
+    setTimeout(() => fin(), 60000);
+  });
+}
+const withTimeout = (p, ms, label) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(label)), ms))]);
+async function activeRegistration() {
+  let r = swReg || (await navigator.serviceWorker.getRegistration());
+  if (!r) r = await navigator.serviceWorker.register("sw.js", { updateViaCache: "none" });
+  swReg = r;
+  if (r.active) return r;
+  return await withTimeout(navigator.serviceWorker.ready, 10000, "De app is nog niet klaar met laden");
+}
+function pushHelp(title, lines) {
+  const T = $("pushTxt"); T.textContent = title;
+  lines.forEach((l) => T.appendChild(el("span", null, l)));
+  $("pushCard").hidden = false; $("pushBtn").hidden = false; $("pushBtn").textContent = "Opnieuw proberen";
+  if (view !== "cal") setView("cal");
+}
 async function enablePush() {
+  if (pushBusy) return;
   if (!pushSupported) return toast("Meldingen werken hier niet", isIOS ? "Open de app vanaf je beginscherm." : "Gebruik Chrome of Samsung Internet.");
+  pushBusy = true; const btn = $("pushBtn"); const oldTxt = btn.textContent; btn.textContent = "Bezig…"; btn.disabled = true;
+  let step = "toestemming vragen";
   try {
-    const perm = await Notification.requestPermission();
-    if (perm !== "granted") { refreshPushCard(); return toast("Meldingen staan uit", "Je kunt ze later aanzetten via je naam rechtsboven."); }
-    const r = swReg || (await navigator.serviceWorker.ready);
-    const { data, error } = await sb.functions.invoke("notify", { method: "GET" });
-    if (error || !data?.publicKey) throw new Error("no key");
+    const perm = await askPermission();
+    if (perm === "denied") {
+      pushHelp("Meldingen zijn geblokkeerd", ["Je telefoon staat meldingen voor deze app niet toe.", "Zo zet je ze aan: houd het app-icoon op je startscherm ingedrukt, tik op App-info (ⓘ), kies Meldingen en zet ze aan. Tik daarna hier op Opnieuw proberen."]);
+      return;
+    }
+    if (perm !== "granted") {
+      pushHelp("Je telefoon vroeg niet om toestemming", ["Dat gebeurt als de vraag eerder is weggetikt.", "Zo zet je het zelf aan: houd het app-icoon op je startscherm ingedrukt, tik op App-info (ⓘ), kies Meldingen en zet ze aan. Tik daarna hier op Opnieuw proberen."]);
+      return;
+    }
+    step = "app klaarzetten";
+    const r = await activeRegistration();
+    step = "sleutel ophalen";
+    const { data, error } = await withTimeout(sb.functions.invoke("notify", { method: "GET" }), 15000, "Geen antwoord van de server");
+    if (error || !data?.publicKey) throw new Error(error?.message || "Geen sleutel ontvangen");
+    step = "aanmelden bij de meldingsdienst";
     let sub = await r.pushManager.getSubscription();
-    if (!sub) sub = await r.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToUint8(data.publicKey) });
-    await saveSub(sub);
+    if (!sub) sub = await withTimeout(r.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToUint8(data.publicKey) }), 20000, "De meldingsdienst van je telefoon reageert niet");
+    step = "opslaan";
+    const j = sub.toJSON();
+    const { error: e2 } = await sb.from("push_subscriptions").upsert({ endpoint: j.endpoint, member: me, p256dh: j.keys.p256dh, auth: j.keys.auth }, { onConflict: "endpoint" });
+    if (e2) throw new Error(e2.message);
     $("pushCard").hidden = true;
-    await sb.functions.invoke("notify", { body: { test: true } });
-    toast("Meldingen staan aan", "Je krijgt nu een testmelding.");
-  } catch {
-    toast("Meldingen aanzetten lukte niet", "Probeer het nog eens, of open de app opnieuw.");
+    step = "testmelding sturen";
+    const t = await sb.functions.invoke("notify", { body: { test: true } });
+    if (t.error || !t.data?.sent) toast("Meldingen staan aan", "De testmelding kon niet worden verstuurd. Probeer hem later via je naam rechtsboven.");
+    else toast("Meldingen staan aan", "Je krijgt nu een testmelding.");
+  } catch (e) {
+    pushHelp("Meldingen aanzetten lukte niet", ["Het ging mis bij: " + step + ".", "Melding van je telefoon: " + String((e && e.message) || e).slice(0, 140)]);
+  } finally {
+    pushBusy = false; btn.disabled = false; if (btn.textContent === "Bezig…") btn.textContent = oldTxt;
   }
 }
 $("pushBtn").onclick = enablePush;
