@@ -1,6 +1,6 @@
 // Service worker: offline shell + push notifications
-const CACHE = "ks-agenda-v17";
-const SHELL = ["./", "index.html", "styles.css?v=17", "app.js?v=17", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png"];
+const CACHE = "ks-agenda-v18";
+const SHELL = ["./", "index.html", "styles.css?v=18", "app.js?v=18", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));

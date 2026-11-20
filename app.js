@@ -195,7 +195,7 @@ function renderMe() {
   $("meAv").textContent = me[0]; $("meAv").className = "avatar av-" + me;
   $("menuWho").textContent = "Ingelogd als " + me;
 }
-$("meBtn").onclick = (e) => { e.stopPropagation(); const open = $("menu").hidden; $("menu").hidden = !open; $("meBtn").setAttribute("aria-expanded", open); };
+$("meBtn").onclick = (e) => { e.stopPropagation(); refreshPushCard(); const open = $("menu").hidden; $("menu").hidden = !open; $("meBtn").setAttribute("aria-expanded", open); };
 document.addEventListener("click", (e) => { if (!$("menu").hidden && !e.target.closest(".mewrap")) $("menu").hidden = true; });
 function renderLooks() {
   const L = $("lookList"); L.textContent = "";
@@ -216,7 +216,7 @@ $("lookDone").onclick = () => { $("lookScrim").hidden = true; };
 $("lookScrim").onclick = (e) => { if (e.target === $("lookScrim")) $("lookScrim").hidden = true; };
 $("mAdmin").onclick = () => { $("menu").hidden = true; setView("admin"); };
 $("mOut").onclick = async () => { $("menu").hidden = true; await unsubscribePush(); await sb.auth.signOut(); };
-$("mPush").onclick = () => { $("menu").hidden = true; enablePush(); };
+$("mPush").onclick = () => { $("menu").hidden = true; pushOn ? disablePush() : enablePush(); };
 $("mTest").onclick = async () => {
   $("menu").hidden = true;
   const r = await sb.functions.invoke("notify", { body: { test: true } });
@@ -1136,26 +1136,18 @@ if ("serviceWorker" in navigator) {
 }
 function b64ToUint8(b64) { const p = "=".repeat((4 - (b64.length % 4)) % 4); const raw = atob((b64 + p).replace(/-/g, "+").replace(/_/g, "/")); return Uint8Array.from([...raw].map((c) => c.charCodeAt(0))); }
 async function currentSub() { try { const r = swReg || (await navigator.serviceWorker.ready); return await r.pushManager.getSubscription(); } catch { return null; } }
+let pushOn = false;
 async function refreshPushCard() {
   if (!me) return;
-  const card = $("pushCard");
-  if (isIOS && !standalone) {
-    card.hidden = false; $("pushBtn").hidden = true;
-    $("pushTxt").innerHTML = "Zet de app op je beginscherm<span>Tik in Safari op het deel-icoon en kies <b>Zet op beginscherm</b>. Open de app daarna vanaf het icoon, dan kun je meldingen aanzetten.</span>";
-    return;
+  $("pushCard").hidden = true; // aan- en uitzetten gaat alleen via je naam rechtsboven
+  let on = false;
+  if (pushSupported && Notification.permission === "granted") {
+    const sub = await currentSub();
+    if (sub) { on = true; saveSub(sub); }
   }
-  if (!pushSupported) { card.hidden = true; return; }
-  $("pushBtn").hidden = false;
-  if (Notification.permission === "denied") {
-    card.hidden = false; $("pushBtn").hidden = true;
-    $("pushTxt").innerHTML = "Meldingen zijn geblokkeerd<span>Zet ze aan in de instellingen van je telefoon, bij deze app of je browser.</span>";
-    return;
-  }
-  const sub = Notification.permission === "granted" ? await currentSub() : null;
-  if (sub) { card.hidden = true; saveSub(sub); return; }
-  card.hidden = false;
-  $("pushTxt").innerHTML = "Meldingen staan uit<span>Zet ze aan, dan hoor je het als er iets nieuws in de agenda komt.</span>";
-  if (!pushBusy) $("pushBtn").textContent = "Aanzetten";
+  pushOn = on;
+  $("mPush").textContent = on ? "Meldingen uitzetten" : "Meldingen aanzetten";
+  $("mTest").hidden = !on;
 }
 async function saveSub(sub) {
   const j = sub.toJSON();
@@ -1177,27 +1169,26 @@ async function activeRegistration() {
   if (r.active) return r;
   return await withTimeout(navigator.serviceWorker.ready, 10000, "De app is nog niet klaar met laden");
 }
-function pushHelp(title, lines) {
-  const T = $("pushTxt"); T.textContent = title;
-  lines.forEach((l) => T.appendChild(el("span", null, l)));
-  $("pushCard").hidden = false; $("pushBtn").hidden = false; $("pushBtn").textContent = "Opnieuw proberen";
-  if (view !== "cal") setView("cal");
+function pushHelp(title, lines, retry) {
+  $("infoH").textContent = title;
+  const B = $("infoBody"); B.textContent = ""; lines.forEach((l) => B.appendChild(el("p", "hint", l)));
+  $("infoRetry").hidden = !retry;
+  $("infoScrim").hidden = false;
 }
+$("infoClose").onclick = () => { $("infoScrim").hidden = true; };
+$("infoScrim").onclick = (e) => { if (e.target === $("infoScrim")) $("infoScrim").hidden = true; };
+$("infoRetry").onclick = () => { $("infoScrim").hidden = true; enablePush(); };
 async function enablePush() {
   if (pushBusy) return;
-  if (!pushSupported) return toast("Meldingen werken hier niet", isIOS ? "Open de app vanaf je beginscherm." : "Gebruik Chrome of Samsung Internet.");
-  pushBusy = true; const btn = $("pushBtn"); const oldTxt = btn.textContent; btn.textContent = "Bezig…"; btn.disabled = true;
+  if (isIOS && !standalone) return pushHelp("Zet de app eerst op je beginscherm", ["Tik in Safari op het deel-icoon en kies Zet op beginscherm.", "Open de app daarna vanaf het icoon en zet meldingen aan via je naam rechtsboven."], false);
+  if (!pushSupported) return pushHelp("Meldingen werken hier niet", ["Open de app in Chrome of Samsung Internet, of vanaf het icoon op je startscherm."], false);
+  pushBusy = true; toast("Meldingen aanzetten…", "", null, 2500);
+  const HOW = "Zo zet je ze aan: houd het app-icoon op je startscherm ingedrukt, tik op App-info (ⓘ), kies Meldingen en zet ze aan. Tik daarna op Opnieuw proberen.";
   let step = "toestemming vragen";
   try {
     const perm = await askPermission();
-    if (perm === "denied") {
-      pushHelp("Meldingen zijn geblokkeerd", ["Je telefoon staat meldingen voor deze app niet toe.", "Zo zet je ze aan: houd het app-icoon op je startscherm ingedrukt, tik op App-info (ⓘ), kies Meldingen en zet ze aan. Tik daarna hier op Opnieuw proberen."]);
-      return;
-    }
-    if (perm !== "granted") {
-      pushHelp("Je telefoon vroeg niet om toestemming", ["Dat gebeurt als de vraag eerder is weggetikt.", "Zo zet je het zelf aan: houd het app-icoon op je startscherm ingedrukt, tik op App-info (ⓘ), kies Meldingen en zet ze aan. Tik daarna hier op Opnieuw proberen."]);
-      return;
-    }
+    if (perm === "denied") return pushHelp("Meldingen zijn geblokkeerd", ["Je telefoon staat meldingen voor deze app niet toe.", HOW], true);
+    if (perm !== "granted") return pushHelp("Je telefoon vroeg niet om toestemming", ["Dat gebeurt als de vraag eerder is weggetikt.", HOW], true);
     step = "app klaarzetten";
     const r = await activeRegistration();
     step = "sleutel ophalen";
@@ -1207,21 +1198,25 @@ async function enablePush() {
     let sub = await r.pushManager.getSubscription();
     if (!sub) sub = await withTimeout(r.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToUint8(data.publicKey) }), 20000, "De meldingsdienst van je telefoon reageert niet");
     step = "opslaan";
-    const j = sub.toJSON();
-    const { error: e2 } = await sb.from("push_subscriptions").upsert({ endpoint: j.endpoint, member: me, p256dh: j.keys.p256dh, auth: j.keys.auth }, { onConflict: "endpoint" });
+    const s = sub.toJSON();
+    const { error: e2 } = await sb.from("push_subscriptions").upsert({ endpoint: s.endpoint, member: me, p256dh: s.keys.p256dh, auth: s.keys.auth }, { onConflict: "endpoint" });
     if (e2) throw new Error(e2.message);
-    $("pushCard").hidden = true;
     step = "testmelding sturen";
     const t = await sb.functions.invoke("notify", { body: { test: true } });
     if (t.error || !t.data?.sent) toast("Meldingen staan aan", "De testmelding kon niet worden verstuurd. Probeer hem later via je naam rechtsboven.");
     else toast("Meldingen staan aan", "Je krijgt nu een testmelding.");
   } catch (e) {
-    pushHelp("Meldingen aanzetten lukte niet", ["Het ging mis bij: " + step + ".", "Melding van je telefoon: " + String((e && e.message) || e).slice(0, 140)]);
+    pushHelp("Meldingen aanzetten lukte niet", ["Het ging mis bij: " + step + ".", "Melding van je telefoon: " + String((e && e.message) || e).slice(0, 140)], true);
   } finally {
-    pushBusy = false; btn.disabled = false; if (btn.textContent === "Bezig…") btn.textContent = oldTxt;
+    pushBusy = false; refreshPushCard();
   }
 }
-$("pushBtn").onclick = enablePush;
+async function disablePush() {
+  await unsubscribePush();
+  toast("Meldingen staan uit", "Aanzetten kan weer via je naam rechtsboven.");
+  refreshPushCard();
+}
+
 async function unsubscribePush() {
   const sub = await currentSub();
   if (sub) { try { await sb.from("push_subscriptions").delete().eq("endpoint", sub.endpoint); await sub.unsubscribe(); } catch {} }
